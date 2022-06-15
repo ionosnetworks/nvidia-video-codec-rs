@@ -38,7 +38,7 @@ fn find_dir(default: &'static str, env_key: &'static str) -> PathBuf {
 }
 
 fn main() {
-    let cuda_include = find_dir("/opt/cuda/include", "CUDA_INCLUDE_PATH");
+    let cuda_include = find_dir("/usr/local/cuda/include", "CUDA_INCLUDE_PATH");
     let nvc_include = find_dir("/opt/nvidia-video-codec/include",
                                "NVIDIA_VIDEO_CODEC_INCLUDE_PATH");
 
