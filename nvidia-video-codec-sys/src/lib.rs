@@ -1,8 +1,11 @@
 // TODO do w/out the unions?
 // #![feature(untagged_unions)]
 
+#[allow(improper_ctypes)]
 pub mod cuda;
+#[allow(improper_ctypes)]
 pub mod cuvid;
+#[allow(improper_ctypes)]
 pub mod nvenc;
 
 #[cfg(test)]
