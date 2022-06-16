@@ -10,7 +10,8 @@ keywords = ["NVIDIA", "cuvid", "nvenc"]
 
 [dependencies]
 nvidia-video-codec-sys = { version = "0.1.0", path = "nvidia-video-codec-sys" }
+tracing = "0.1"
+flume = "0.10"
 
 [workspace]
 members = ["nvidia-video-codec-sys"]
-

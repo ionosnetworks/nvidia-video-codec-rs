@@ -1,45 +1,31 @@
-use ffi::cuda::*;
-
 use cuda::device::CuDevice;
 
 pub struct CuContext {
-    context : CUcontext,
+    pub(crate) context: ffi::cuda::CUcontext,
 }
 
 impl CuContext {
-    pub fn new(dev : CuDevice, flags : u32) -> Result<CuContext, CUresult> {
-        let mut ctx = CuContext { context : 0 };
-        let res = unsafe { cuCtxCreate(&mut ctx.context as *mut CUcontext, dev.device) }
+    pub fn new(dev: CuDevice, flags: u32) -> Result<CuContext, ffi::cuda::CUresult> {
+        let mut ctx = CuContext {
+            context: std::ptr::null_mut(),
+        };
+        let res = unsafe { ffi::cuda::cuCtxCreate_v2(&mut ctx.context, flags, dev.device) };
 
         wrap!(ctx, res)
     }
 
-    pub fn get_api_version(&self) -> Result<u32, CUresult> {
+    pub fn get_api_version(&self) -> Result<u32, ffi::cuda::CUresult> {
         let mut ver = 0;
-        let res = unsafe { cuGetApiVersion(self.context, &mut ver as *mut u32)};
+        let res = unsafe { ffi::cuda::cuCtxGetApiVersion(self.context, &mut ver as *mut u32) };
 
         wrap!(ver, res)
     }
-
-    pub fn pop() -> Result<, CUresult> {
-        let res = unsafe { cuCtxPopCurrent
-    }
 }
-
-/* TODO: leverage clone/drop/deref traits
-impl Clone for CuContext {
-
-}
-
-impl Deref for CuContext {
-
-}
-*/
 
 impl Drop for CuContext {
     fn drop(&mut self) {
         unsafe {
-            cuCtxDestroy(self.context);
+            ffi::cuda::cuCtxDestroy_v2(self.context);
         }
     }
 }

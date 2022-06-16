@@ -6,7 +6,8 @@ use std::io::Write;
 use std::path::PathBuf;
 
 fn format_write(builder: bindgen::Builder, output: &str) {
-    let s = builder.generate()
+    let s = builder
+        .generate()
         .unwrap()
         .to_string()
         .replace("/**", "/*")
@@ -39,14 +40,19 @@ fn find_dir(default: &'static str, env_key: &'static str) -> PathBuf {
 
 fn main() {
     let cuda_include = find_dir("/usr/local/cuda/include", "CUDA_INCLUDE_PATH");
-    let nvc_include = find_dir("/opt/nvidia-video-codec/include",
-                               "NVIDIA_VIDEO_CODEC_INCLUDE_PATH");
+    let nvc_include = find_dir(
+        "/opt/nvidia-video-codec/include",
+        "NVIDIA_VIDEO_CODEC_INCLUDE_PATH",
+    );
 
     // TODO support windows
     println!("cargo:rustc-link-lib=dylib={}", "cuda");
     println!("cargo:rustc-link-lib=dylib={}", "nvcuvid");
-    println!("cargo:rustc-link-lib=dylib={}", "nvidia-encode");
-
+    //println!("cargo:rustc-link-lib=dylib={}", "nvidia-encode");
+    //println!("cargo:rustc-link-lib=dylib={}", "nvidia-encode");
+    println!("cargo:rustc-link-lib=dylib={}", "nppc");
+    println!("cargo:rustc-link-lib=dylib={}", "nppicc");
+    println!(r"cargo:rustc-link-search=/usr/local/cuda/lib64");
 
     let cuda_builder = common_builder()
         .clang_arg(format!("-I{}", cuda_include.to_string_lossy()))
@@ -62,9 +68,14 @@ fn main() {
 
     format_write(cuvid_builder, "src/cuvid.rs");
 
-    let nvenc_builder = common_builder()
-        .clang_arg(format!("-I{}", nvc_include.to_string_lossy()))
-        .header(nvc_include.join("nvEncodeAPI.h").to_string_lossy());
+    let npp_builder = common_builder()
+        .clang_arg(format!("-I{}", cuda_include.to_string_lossy()))
+        .header(cuda_include.join("nppcore.h").to_string_lossy())
+        .header(
+            cuda_include
+                .join("nppi_color_conversion.h")
+                .to_string_lossy(),
+        );
 
-    format_write(nvenc_builder, "src/nvenc.rs");
+    format_write(npp_builder, "src/npp.rs");
 }

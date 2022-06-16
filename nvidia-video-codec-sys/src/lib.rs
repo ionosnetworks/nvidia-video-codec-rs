@@ -6,7 +6,7 @@ pub mod cuda;
 #[allow(improper_ctypes)]
 pub mod cuvid;
 #[allow(improper_ctypes)]
-pub mod nvenc;
+pub mod npp;
 
 #[cfg(test)]
 mod tests {

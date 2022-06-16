@@ -4,7 +4,7 @@ use std::os::raw::c_int;
 use ffi::cuda::*;
 
 pub struct CuDevice {
-    device: CUdevice,
+    pub(crate) device: CUdevice,
 }
 
 impl CuDevice {
