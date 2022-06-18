@@ -84,23 +84,6 @@ impl Decoder {
         let device = super::cuda::device::CuDevice::new(gpu_id as _)?;
         let context = super::cuda::context::CuContext::new(device, 0)?;
 
-        let mut params = ffi::cuvid::CUVIDPARSERPARAMS {
-            CodecType: codec.into(),
-            ulMaxNumDecodeSurfaces: 1,
-            ulClockRate: 10000000,
-            ulErrorThreshold: 100,
-            ulMaxDisplayDelay: if low_latency { 0 } else { 1 },
-            _bitfield_align_1: Default::default(),
-            _bitfield_1: Default::default(),
-            uReserved1: Default::default(),
-            pUserData: std::ptr::null_mut(),
-            pfnSequenceCallback: Some(handle_video_sequence_proc),
-            pfnDecodePicture: Some(handle_picture_decode_proc),
-            pfnDisplayPicture: Some(handle_picture_display_proc),
-            pfnGetOperatingPoint: Some(handle_operating_point_proc),
-            pvReserved2: [std::ptr::null_mut(); 6],
-            pExtVideoInfo: std::ptr::null_mut(),
-        };
         let mut parser: ffi::cuvid::CUvideoparser = std::ptr::null_mut();
         let mut ctx_lock: ffi::cuvid::CUvideoctxlock = std::ptr::null_mut();
 
@@ -129,6 +112,16 @@ impl Decoder {
             sender: Some(sender),
         });
 
+        let mut params: ffi::cuvid::CUVIDPARSERPARAMS = unsafe { std::mem::zeroed() };
+        params.CodecType = codec.into();
+        params.ulMaxNumDecodeSurfaces = 1;
+        params.ulClockRate = 10000000;
+        params.ulErrorThreshold = 100;
+        params.ulMaxDisplayDelay = if low_latency { 0 } else { 1 };
+        params.pfnSequenceCallback = Some(handle_video_sequence_proc);
+        params.pfnDecodePicture = Some(handle_picture_decode_proc);
+        params.pfnDisplayPicture = Some(handle_picture_display_proc);
+        params.pfnGetOperatingPoint = Some(handle_operating_point_proc);
         params.pUserData = (&mut *inner as *mut Inner) as *mut std::os::raw::c_void;
 
         unsafe {
@@ -157,13 +150,9 @@ impl Decoder {
     }
 
     pub fn send_eos(&self) -> Result<(), ffi::cuda::CUresult> {
-        let mut packet = ffi::cuvid::CUVIDSOURCEDATAPACKET {
-            flags: (ffi::cuvid::CUvideopacketflags_CUVID_PKT_ENDOFSTREAM
-                | ffi::cuvid::CUvideopacketflags_CUVID_PKT_NOTIFY_EOS) as _,
-            payload_size: 0,
-            payload: std::ptr::null(),
-            timestamp: 0,
-        };
+        let mut packet: ffi::cuvid::CUVIDSOURCEDATAPACKET = unsafe { std::mem::zeroed() };
+        packet.flags = (ffi::cuvid::CUvideopacketflags_CUVID_PKT_ENDOFSTREAM
+            | ffi::cuvid::CUvideopacketflags_CUVID_PKT_NOTIFY_EOS) as _;
 
         unsafe {
             let res = ffi::cuvid::cuvidParseVideoData(self.inner.parser, &mut packet);
@@ -231,24 +220,10 @@ impl Inner {
 
         let min_surfaces = fmt.min_num_decode_surfaces;
 
-        let mut decode_caps = ffi::cuvid::CUVIDDECODECAPS {
-            eCodecType: fmt.codec,
-            eChromaFormat: fmt.chroma_format,
-            nBitDepthMinus8: fmt.bit_depth_chroma_minus8 as _,
-            reserved1: [0, 0, 0],
-            bIsSupported: 0,
-            nNumNVDECs: 0,
-            nOutputFormatMask: 0,
-            nMaxWidth: 0,
-            nMaxHeight: 0,
-            nMaxMBCount: 0,
-            nMinWidth: 0,
-            nMinHeight: 0,
-            bIsHistogramSupported: 0,
-            nCounterBitDepth: 0,
-            nMaxHistogramBins: 0,
-            reserved3: [0; 10usize],
-        };
+        let mut decode_caps: ffi::cuvid::CUVIDDECODECAPS = unsafe { std::mem::zeroed() };
+        decode_caps.eCodecType = fmt.codec;
+        decode_caps.eChromaFormat = fmt.chroma_format;
+        decode_caps.nBitDepthMinus8 = fmt.bit_depth_chroma_minus8 as _;
 
         unsafe {
             if !ffi::cuda::cuCtxPushCurrent_v2(self.context.context).ok() {
@@ -352,43 +327,30 @@ impl Inner {
         let video_fmt = self.video_fmt.as_ref().unwrap();
         let decode_surfaces = (min_surfaces as u64).max(12);
 
-        let mut video_decode_create_info = ffi::cuvid::CUVIDDECODECREATEINFO {
-            CodecType: self.codec.into(),
-            ChromaFormat: self.chroma_format.into(),
-            OutputFormat: self.output_format.into(),
-            bitDepthMinus8: video_fmt.bit_depth_luma_minus8 as _,
-            DeinterlaceMode: if video_fmt.progressive_sequence != 0 {
-                ffi::cuvid::cudaVideoDeinterlaceMode_enum_cudaVideoDeinterlaceMode_Weave
-            } else {
-                ffi::cuvid::cudaVideoDeinterlaceMode_enum_cudaVideoDeinterlaceMode_Adaptive
-            },
-            ulNumOutputSurfaces: 3,
-            ulCreationFlags: ffi::cuvid::cudaVideoCreateFlags_enum_cudaVideoCreate_PreferCUVID as _,
-            ulNumDecodeSurfaces: decode_surfaces,
-            vidLock: self.lock,
-            ulWidth: video_fmt.coded_width as _,
-            ulHeight: video_fmt.coded_height as _,
-            ulMaxWidth: video_fmt.coded_width as _,
-            ulMaxHeight: video_fmt.coded_height as _,
-            ulTargetWidth: video_fmt.coded_width as _,
-            ulTargetHeight: video_fmt.coded_height as _,
-            ulIntraDecodeOnly: if self.keyframe_only { 1 } else { 0 },
-            Reserved1: 0,
-            Reserved2: [0, 0, 0, 0],
-            enableHistogram: 0,
-            target_rect: ffi::cuvid::_CUVIDDECODECREATEINFO__bindgen_ty_2 {
-                left: 0,
-                top: 0,
-                right: 0,
-                bottom: 0,
-            },
-            display_area: ffi::cuvid::_CUVIDDECODECREATEINFO__bindgen_ty_1 {
-                left: 0,
-                top: 0,
-                right: 0,
-                bottom: 0,
-            },
+        let mut video_decode_create_info: ffi::cuvid::CUVIDDECODECREATEINFO =
+            unsafe { std::mem::zeroed() };
+
+        video_decode_create_info.CodecType = self.codec.into();
+        video_decode_create_info.ChromaFormat = self.chroma_format.into();
+        video_decode_create_info.OutputFormat = self.output_format.into();
+        video_decode_create_info.bitDepthMinus8 = video_fmt.bit_depth_luma_minus8 as _;
+        video_decode_create_info.DeinterlaceMode = if video_fmt.progressive_sequence != 0 {
+            ffi::cuvid::cudaVideoDeinterlaceMode_enum_cudaVideoDeinterlaceMode_Weave
+        } else {
+            ffi::cuvid::cudaVideoDeinterlaceMode_enum_cudaVideoDeinterlaceMode_Adaptive
         };
+        video_decode_create_info.ulNumOutputSurfaces = 3;
+        video_decode_create_info.ulCreationFlags =
+            ffi::cuvid::cudaVideoCreateFlags_enum_cudaVideoCreate_PreferCUVID as _;
+        video_decode_create_info.ulNumDecodeSurfaces = decode_surfaces;
+        video_decode_create_info.vidLock = self.lock;
+        video_decode_create_info.ulWidth = video_fmt.coded_width as _;
+        video_decode_create_info.ulHeight = video_fmt.coded_height as _;
+        video_decode_create_info.ulMaxWidth = video_fmt.coded_width as _;
+        video_decode_create_info.ulMaxHeight = video_fmt.coded_height as _;
+        video_decode_create_info.ulTargetWidth = video_fmt.coded_width as _;
+        video_decode_create_info.ulTargetHeight = video_fmt.coded_height as _;
+        video_decode_create_info.ulIntraDecodeOnly = if self.keyframe_only { 1 } else { 0 };
 
         if self.requested_size.0 > 0 && self.requested_size.1 > 0 {
             video_decode_create_info.display_area.left = video_fmt.display_area.left as _;
@@ -451,23 +413,16 @@ impl Inner {
             return 1;
         }
         let display_info = unsafe { &*display_info };
-        let video_processing_parameters = ffi::cuvid::CUVIDPROCPARAMS {
-            progressive_frame: display_info.progressive_frame,
-            second_field: display_info.repeat_first_field + 1,
-            top_field_first: display_info.top_field_first,
-            unpaired_field: (display_info.repeat_first_field < 0) as i32,
-            output_stream: std::ptr::null_mut(),
-            reserved_flags: 0,
-            reserved_zero: 0,
-            raw_input_dptr: 0,
-            raw_input_pitch: 0,
-            raw_input_format: 0,
-            raw_output_dptr: 0,
-            raw_output_pitch: 0,
-            Reserved1: 0,
-            Reserved: [0; 46usize],
-            histogram_dptr: std::ptr::null_mut(),
-            Reserved2: [std::ptr::null_mut(); 1usize],
+        let video_processing_parameters = {
+            let mut video_processing_parameters: ffi::cuvid::CUVIDPROCPARAMS =
+                unsafe { std::mem::zeroed() };
+            video_processing_parameters.progressive_frame = display_info.progressive_frame;
+            video_processing_parameters.second_field = display_info.repeat_first_field + 1;
+            video_processing_parameters.top_field_first = display_info.top_field_first;
+            video_processing_parameters.unpaired_field =
+                (display_info.repeat_first_field < 0) as i32;
+
+            video_processing_parameters
         };
 
         let res = self.sender.as_ref().unwrap().send(PreparedFrame {
@@ -525,11 +480,8 @@ impl<'a, 'b> Iterator for FramesIter<'a, 'b> {
                 return None;
             }
 
-            let mut decode_status = ffi::cuvid::CUVIDGETDECODESTATUS {
-                decodeStatus: 0,
-                reserved: [0; 31usize],
-                pReserved: [std::ptr::null_mut(); 8usize],
-            };
+            let mut decode_status: ffi::cuvid::CUVIDGETDECODESTATUS = std::mem::zeroed();
+
             if ffi::cuvid::cuvidGetDecodeStatus(self.inner.decoder, frame.index, &mut decode_status)
                 .ok()
             {
