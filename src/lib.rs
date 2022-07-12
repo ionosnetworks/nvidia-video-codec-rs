@@ -105,15 +105,14 @@ pub fn nv12_to_rgb24(
     Ok(())
 }
 
-
 pub fn nv12_to_bgr24(
     ptr: ffi::cuvid::CUdeviceptr,
     width: u32,
     height: u32,
     pitch: i32,
-
     dest_ptr: *mut std::os::raw::c_void,
     dest_pitch: i32,
+    stream: Option<cuda::stream::CuStream>,
 ) -> Result<(), ffi::npp::NppStatus> {
     let src: [*const ffi::npp::Npp8u; 2] = unsafe {
         [
@@ -125,6 +124,15 @@ pub fn nv12_to_bgr24(
         width: width as _,
         height: height as _,
     };
+
+    if let Some(stream) = stream.as_ref() {
+        unsafe {
+            if ffi::npp::nppGetStream() != (stream.stream as _) {
+                ffi::npp::nppSetStream(stream.stream as _);
+            }
+        }
+    }
+
     let stream_ctx = unsafe {
         let mut ctx: MaybeUninit<ffi::npp::NppStreamContext> = MaybeUninit::uninit();
         ffi::npp::nppGetStreamContext(ctx.as_mut_ptr()).err()?;
