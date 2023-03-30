@@ -386,7 +386,8 @@ impl Inner {
 
     fn picture_decode_cb(&self, pic_params: *mut ffi::cuvid::CUVIDPICPARAMS) -> i32 {
         if self.decoder.is_null() {
-            panic!("decoder not initialized");
+            tracing::error!("picture_decode_cb called but decoder is not initialized.");
+            return 0;
         }
         unsafe {
             if !ffi::cuda::cuCtxPushCurrent_v2(self.context.context).ok() {
