@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 use std::mem::MaybeUninit;
 
-extern crate nvidia_video_codec_sys as ffi;
+pub extern crate nvidia_video_codec_sys as ffi;
 
 #[macro_use]
 mod macros;
