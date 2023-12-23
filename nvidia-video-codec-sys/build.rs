@@ -80,6 +80,11 @@ fn main() {
             cuda_include
                 .join("nppi_geometry_transforms.h")
                 .to_string_lossy(),
+        )
+        .header(
+            cuda_include
+                .join("nppi_data_exchange_and_initialization.h")
+                .to_string_lossy(),
         );
 
     format_write(npp_builder, "src/npp.rs");
