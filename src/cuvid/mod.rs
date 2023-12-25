@@ -80,6 +80,7 @@ impl Decoder {
         keyframe_only: bool,
         low_latency: bool,
         output_size: (u32, u32),
+        decode_surfaces: Option<usize>,
     ) -> Result<Self, ffi::cuda::CUresult> {
         let device = super::cuda::device::CuDevice::new(gpu_id as _)?;
         let context = super::cuda::context::CuContext::new(device, 0)?;
@@ -114,7 +115,7 @@ impl Decoder {
 
         let mut params: ffi::cuvid::CUVIDPARSERPARAMS = unsafe { std::mem::zeroed() };
         params.CodecType = codec.into();
-        params.ulMaxNumDecodeSurfaces = 1;
+        params.ulMaxNumDecodeSurfaces = decode_surfaces.unwrap_or(1) as _;
         params.ulClockRate = 10000000;
         params.ulErrorThreshold = 100;
         params.ulMaxDisplayDelay = if low_latency { 0 } else { 1 };
