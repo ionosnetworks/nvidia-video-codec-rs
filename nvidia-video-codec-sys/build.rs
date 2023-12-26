@@ -50,8 +50,8 @@ fn main() {
     println!("cargo:rustc-link-lib=dylib={}", "nvcuvid");
     //println!("cargo:rustc-link-lib=dylib={}", "nvidia-encode");
     //println!("cargo:rustc-link-lib=dylib={}", "nvidia-encode");
-    println!("cargo:rustc-link-lib=dylib={}", "nppc");
-    println!("cargo:rustc-link-lib=dylib={}", "nppicc");
+    println!("cargo:rustc-link-lib=static={}", "nppc");
+    println!("cargo:rustc-link-lib=static={}", "nppicc");
     println!(r"cargo:rustc-link-search=/usr/local/cuda/lib64");
 
     let cuda_builder = common_builder()
