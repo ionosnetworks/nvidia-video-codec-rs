@@ -1,4 +1,5 @@
 use std::time::Duration;
+use std::borrow::Cow;
 
 use super::{ffi, CudaResult};
 
@@ -22,7 +23,7 @@ unsafe impl Sync for Decoder {}
 struct Inner {
     parser: ffi::cuvid::CUvideoparser,
     lock: ffi::cuvid::CUvideoctxlock,
-    context: super::cuda::context::CuContext,
+    context: super::cuda::context::CuContextRef<'static>,
     decoder: ffi::cuvid::CUvideodecoder,
     keyframe_only: bool,
     requested_size: (u32, u32),
@@ -81,7 +82,7 @@ impl Drop for GpuFrame {
 impl Decoder {
     pub fn create(
         gpu_id: usize,
-        context: Option<super::cuda::context::CuContext>,
+        context: Option<&'static super::cuda::context::CuContext>,
         codec: Codec,
         keyframe_only: bool,
         low_latency: bool,
@@ -91,11 +92,11 @@ impl Decoder {
         frame_timeout: Option<Duration>,
     ) -> Result<Self, ffi::cuda::CUresult> {
         let context = match context {
-            Some(context) => context,
+            Some(context) => super::cuda::context::CuContextRef::Borrowed(context),
             None => {
                 let device = super::cuda::device::CuDevice::new(gpu_id as _)?;
                 let context = super::cuda::context::CuContext::new(device, 0)?;
-                context
+                super::cuda::context::CuContextRef::Owned(context)
             }
         };
         

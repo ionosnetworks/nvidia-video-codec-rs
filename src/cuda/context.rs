@@ -32,3 +32,21 @@ impl Drop for CuContext {
         }
     }
 }
+
+pub enum CuContextRef<'a>
+{
+    Borrowed(&'a CuContext),
+    Owned(CuContext),
+}
+
+impl std::ops::Deref for CuContextRef<'_>
+{
+    type Target = CuContext;
+
+    fn deref(&self) -> &CuContext {
+        match *self {
+            CuContextRef::Borrowed(borrowed) => borrowed,
+            CuContextRef::Owned(ref owned) => owned,
+        }
+    }
+}
