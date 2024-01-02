@@ -37,6 +37,7 @@ struct Inner {
     coded_size: (u32, u32),
     sender: Option<flume::Sender<PreparedFrame>>,
     receiver: flume::Receiver<PreparedFrame>,
+    requested_output_surfaces: Option<usize>,
     requested_decode_surfaces: Option<usize>,
     frame_timeout: Option<Duration>
 }
@@ -85,6 +86,7 @@ impl Decoder {
         low_latency: bool,
         output_size: (u32, u32),
         decode_surfaces: Option<usize>,
+        output_surfaces: Option<usize>,
         frame_timeout: Option<Duration>,
     ) -> Result<Self, ffi::cuda::CUresult> {
         let device = super::cuda::device::CuDevice::new(gpu_id as _)?;
@@ -115,6 +117,7 @@ impl Decoder {
             coded_size: (0, 0),
             requested_size: output_size,
             receiver,
+            requested_output_surfaces: output_surfaces,
             requested_decode_surfaces: decode_surfaces,
             sender: Some(sender),
             frame_timeout,
@@ -348,7 +351,7 @@ impl Inner {
         } else {
             ffi::cuvid::cudaVideoDeinterlaceMode_enum_cudaVideoDeinterlaceMode_Adaptive
         };
-        video_decode_create_info.ulNumOutputSurfaces = 3;
+        video_decode_create_info.ulNumOutputSurfaces = self.requested_output_surfaces.unwrap_or(3) as _;
         video_decode_create_info.ulCreationFlags =
             ffi::cuvid::cudaVideoCreateFlags_enum_cudaVideoCreate_PreferCUVID as _;
         video_decode_create_info.ulNumDecodeSurfaces = decode_surfaces;
