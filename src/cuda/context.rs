@@ -4,6 +4,9 @@ pub struct CuContext {
     pub(crate) context: ffi::cuda::CUcontext,
 }
 
+unsafe impl Send for CuContext {}
+unsafe impl Sync for CuContext {}
+
 impl CuContext {
     pub fn new(dev: CuDevice, flags: u32) -> Result<CuContext, ffi::cuda::CUresult> {
         let mut ctx = CuContext {

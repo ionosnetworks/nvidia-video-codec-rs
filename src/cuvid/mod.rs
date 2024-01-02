@@ -81,6 +81,7 @@ impl Drop for GpuFrame {
 impl Decoder {
     pub fn create(
         gpu_id: usize,
+        context: Option<super::cuda::context::CuContext>,
         codec: Codec,
         keyframe_only: bool,
         low_latency: bool,
@@ -89,8 +90,15 @@ impl Decoder {
         output_surfaces: Option<usize>,
         frame_timeout: Option<Duration>,
     ) -> Result<Self, ffi::cuda::CUresult> {
-        let device = super::cuda::device::CuDevice::new(gpu_id as _)?;
-        let context = super::cuda::context::CuContext::new(device, 0)?;
+        let context = match context {
+            Some(context) => context,
+            None => {
+                let device = super::cuda::device::CuDevice::new(gpu_id as _)?;
+                let context = super::cuda::context::CuContext::new(device, 0)?;
+                context
+            }
+        };
+        
 
         let mut parser: ffi::cuvid::CUvideoparser = std::ptr::null_mut();
         let mut ctx_lock: ffi::cuvid::CUvideoctxlock = std::ptr::null_mut();
