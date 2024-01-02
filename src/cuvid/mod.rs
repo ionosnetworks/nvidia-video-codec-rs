@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use super::{ffi, CudaResult};
 
 pub use ffi::cuvid::CUdeviceptr;
@@ -36,6 +38,7 @@ struct Inner {
     sender: Option<flume::Sender<PreparedFrame>>,
     receiver: flume::Receiver<PreparedFrame>,
     requested_decode_surfaces: Option<usize>,
+    frame_timeout: Option<Duration>
 }
 
 #[derive(Debug)]
@@ -82,6 +85,7 @@ impl Decoder {
         low_latency: bool,
         output_size: (u32, u32),
         decode_surfaces: Option<usize>,
+        frame_timeout: Option<Duration>,
     ) -> Result<Self, ffi::cuda::CUresult> {
         let device = super::cuda::device::CuDevice::new(gpu_id as _)?;
         let context = super::cuda::context::CuContext::new(device, 0)?;
@@ -113,6 +117,7 @@ impl Decoder {
             receiver,
             requested_decode_surfaces: decode_surfaces,
             sender: Some(sender),
+            frame_timeout,
         });
 
         let mut params: ffi::cuvid::CUVIDPARSERPARAMS = unsafe { std::mem::zeroed() };
@@ -171,6 +176,7 @@ impl Decoder {
     ) -> FramesIter<'a, 'b> {
         FramesIter {
             inner: &self.inner,
+            frame_timeout: self.inner.frame_timeout,
             context,
         }
     }
@@ -451,13 +457,19 @@ impl Inner {
 pub struct FramesIter<'a, 'b> {
     inner: &'a Inner,
     context: Option<&'b super::cuda::context::CuContext>,
+    frame_timeout: Option<Duration>,
 }
 
 impl<'a, 'b> Iterator for FramesIter<'a, 'b> {
     type Item = GpuFrame;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let mut frame = self.inner.receiver.recv().ok()?;
+        let mut frame = match self.frame_timeout {
+            Some(timeout) => self.inner.receiver.recv_timeout(timeout).ok()?,
+            None => {
+                self.inner.receiver.recv().ok()?
+            }
+        };
 
         let mut dp_src_frame: CUdeviceptr = 0;
         let mut n_src_pitch = 0u32;
