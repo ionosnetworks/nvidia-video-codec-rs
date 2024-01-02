@@ -35,6 +35,7 @@ struct Inner {
     coded_size: (u32, u32),
     sender: Option<flume::Sender<PreparedFrame>>,
     receiver: flume::Receiver<PreparedFrame>,
+    requested_decode_surfaces: Option<usize>,
 }
 
 #[derive(Debug)]
@@ -110,6 +111,7 @@ impl Decoder {
             coded_size: (0, 0),
             requested_size: output_size,
             receiver,
+            requested_decode_surfaces: decode_surfaces,
             sender: Some(sender),
         });
 
@@ -182,8 +184,8 @@ impl Drop for Decoder {
             if !self.inner.decoder.is_null() {
                 ffi::cuda::cuCtxPushCurrent_v2(self.inner.context.context);
                 ffi::cuvid::cuvidDestroyDecoder(self.inner.decoder);
+                ffi::cuda::cuCtxPopCurrent_v2(std::ptr::null_mut());
             }
-            ffi::cuda::cuCtxPopCurrent_v2(std::ptr::null_mut());
             ffi::cuvid::cuvidCtxLockDestroy(self.inner.lock);
         }
     }
@@ -326,7 +328,7 @@ impl Inner {
 
         self.video_fmt = Some(*fmt);
         let video_fmt = self.video_fmt.as_ref().unwrap();
-        let decode_surfaces = (min_surfaces as u64).max(12);
+        let decode_surfaces = (min_surfaces as u64).max(self.requested_decode_surfaces.unwrap_or(0) as u64);
 
         let mut video_decode_create_info: ffi::cuvid::CUVIDDECODECREATEINFO =
             unsafe { std::mem::zeroed() };
@@ -371,6 +373,9 @@ impl Inner {
         unsafe {
             if !ffi::cuda::cuCtxPushCurrent_v2(self.context.context).ok() {
                 return min_surfaces as _;
+            }
+            if !self.decoder.is_null() {
+                ffi::cuvid::cuvidDestroyDecoder(self.decoder);
             }
             if !ffi::cuvid::cuvidCreateDecoder(&mut self.decoder, &mut video_decode_create_info)
                 .ok()
