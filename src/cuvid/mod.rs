@@ -1,5 +1,5 @@
-use std::time::Duration;
 use std::borrow::Cow;
+use std::time::Duration;
 
 use super::{ffi, CudaResult};
 
@@ -40,7 +40,7 @@ struct Inner {
     receiver: flume::Receiver<PreparedFrame>,
     requested_output_surfaces: Option<usize>,
     requested_decode_surfaces: Option<usize>,
-    frame_timeout: Option<Duration>
+    frame_timeout: Option<Duration>,
 }
 
 #[derive(Debug)]
@@ -99,7 +99,6 @@ impl Decoder {
                 super::cuda::context::CuContextRef::Owned(context)
             }
         };
-        
 
         let mut parser: ffi::cuvid::CUvideoparser = std::ptr::null_mut();
         let mut ctx_lock: ffi::cuvid::CUvideoctxlock = std::ptr::null_mut();
@@ -239,7 +238,7 @@ impl Inner {
             fmt.min_num_decode_surfaces,
         );
 
-        let min_surfaces = fmt.min_num_decode_surfaces;
+        let min_surfaces = fmt.min_num_decode_surfaces + 3;
 
         let mut decode_caps: ffi::cuvid::CUVIDDECODECAPS = unsafe { std::mem::zeroed() };
         decode_caps.eCodecType = fmt.codec;
@@ -283,6 +282,30 @@ impl Inner {
 
             return min_surfaces as _;
         }
+        let mut force_recreate = false;
+        if !self.decoder.is_null() {
+            if self.bit_depth_minus8 != fmt.bit_depth_luma_minus8 {
+                tracing::warn!("Reconfigure Not supported for bit depth change");
+                force_recreate = true;
+            }
+            if self.chroma_format != fmt.chroma_format.into() {
+                tracing::warn!("Reconfigure Not supported for chroma format change");
+                force_recreate = true;
+            }
+        }
+        let res_change = !(fmt.coded_width == self.coded_size.0
+            && fmt.coded_height == self.coded_size.1);
+        /*
+        let rect_change = !(pVideoFormat->display_area.bottom ==
+                                  p_impl->m_videoFormat.display_area.bottom &&
+                              pVideoFormat->display_area.top ==
+                                  p_impl->m_videoFormat.display_area.top &&
+                              pVideoFormat->display_area.left ==
+                                  p_impl->m_videoFormat.display_area.left &&
+                              pVideoFormat->display_area.right ==
+                                  p_impl->m_videoFormat.display_area.right);
+        */
+        let rect_change = false; // TODO(nemosupremo)
 
         self.codec = fmt.codec.into();
         self.chroma_format = fmt.chroma_format.into();
@@ -346,7 +369,8 @@ impl Inner {
 
         self.video_fmt = Some(*fmt);
         let video_fmt = self.video_fmt.as_ref().unwrap();
-        let decode_surfaces = (min_surfaces as u64).max(self.requested_decode_surfaces.unwrap_or(0) as u64);
+        let decode_surfaces =
+            (min_surfaces as u64).max(self.requested_decode_surfaces.unwrap_or(0) as u64);
 
         let mut video_decode_create_info: ffi::cuvid::CUVIDDECODECREATEINFO =
             unsafe { std::mem::zeroed() };
@@ -360,7 +384,8 @@ impl Inner {
         } else {
             ffi::cuvid::cudaVideoDeinterlaceMode_enum_cudaVideoDeinterlaceMode_Adaptive
         };
-        video_decode_create_info.ulNumOutputSurfaces = self.requested_output_surfaces.unwrap_or(3) as _;
+        video_decode_create_info.ulNumOutputSurfaces =
+            self.requested_output_surfaces.unwrap_or(3) as _;
         video_decode_create_info.ulCreationFlags =
             ffi::cuvid::cudaVideoCreateFlags_enum_cudaVideoCreate_PreferCUVID as _;
         video_decode_create_info.ulNumDecodeSurfaces = decode_surfaces;
@@ -392,14 +417,40 @@ impl Inner {
             if !ffi::cuda::cuCtxPushCurrent_v2(self.context.context).ok() {
                 return min_surfaces as _;
             }
-            if !self.decoder.is_null() {
+            if force_recreate {
                 ffi::cuvid::cuvidDestroyDecoder(self.decoder);
+                self.decoder = std::ptr::null_mut();
             }
-            if !ffi::cuvid::cuvidCreateDecoder(&mut self.decoder, &mut video_decode_create_info)
-                .ok()
-            {
-                return min_surfaces as _;
+
+            if self.decoder.is_null() {
+                if !ffi::cuvid::cuvidCreateDecoder(&mut self.decoder, &mut video_decode_create_info)
+                    .ok()
+                {
+                    return min_surfaces as _;
+                }
+            } else {
+                if !res_change {
+                    if rect_change {
+                        // TODO(nemosupremo)
+                    }
+                } else {
+                    let mut video_decode_reconfigure_info: ffi::cuvid::CUVIDRECONFIGUREDECODERINFO =
+                        unsafe { std::mem::zeroed() };
+                    video_decode_reconfigure_info.ulWidth = video_fmt.coded_width as _;
+                    video_decode_reconfigure_info.ulHeight = video_fmt.coded_height as _;
+                    video_decode_reconfigure_info.ulTargetWidth = video_fmt.coded_width as _;
+                    video_decode_reconfigure_info.ulTargetHeight = video_fmt.coded_height as _;
+                    if !ffi::cuvid::cuvidReconfigureDecoder(
+                        self.decoder,
+                        &mut video_decode_reconfigure_info,
+                    )
+                    .ok()
+                    {
+                        return min_surfaces as _;
+                    }
+                }
             }
+
             if !ffi::cuda::cuCtxPopCurrent_v2(std::ptr::null_mut()).ok() {
                 return min_surfaces as _;
             }
@@ -483,9 +534,7 @@ impl<'a, 'b> Iterator for FramesIter<'a, 'b> {
     fn next(&mut self) -> Option<Self::Item> {
         let mut frame = match self.frame_timeout {
             Some(timeout) => self.inner.receiver.recv_timeout(timeout).ok()?,
-            None => {
-                self.inner.receiver.recv().ok()?
-            }
+            None => self.inner.receiver.recv().ok()?,
         };
 
         let mut dp_src_frame: CUdeviceptr = 0;
@@ -502,19 +551,6 @@ impl<'a, 'b> Iterator for FramesIter<'a, 'b> {
                 tracing::error!("Failed to push current context.");
                 return None;
             }
-            // tracing::info!("{}: {}", context.is_some(), frame.index);
-            if let Err(err) = ffi::cuvid::cuvidMapVideoFrame64(
-                self.inner.decoder,
-                frame.index,
-                &mut dp_src_frame,
-                &mut n_src_pitch,
-                &mut frame.parameters,
-            )
-            .err()
-            {
-                tracing::error!("Failed to map video frame: {}", err);
-                return None;
-            }
 
             let mut decode_status: ffi::cuvid::CUVIDGETDECODESTATUS = std::mem::zeroed();
 
@@ -527,7 +563,22 @@ impl<'a, 'b> Iterator for FramesIter<'a, 'b> {
                         == ffi::cuvid::cuvidDecodeStatus_enum_cuvidDecodeStatus_Error_Concealed
                 {
                     tracing::error!("Decoding error occured");
+                    return None;
                 }
+            }
+
+            // tracing::info!("{}: {}", context.is_some(), frame.index);
+            if let Err(err) = ffi::cuvid::cuvidMapVideoFrame64(
+                self.inner.decoder,
+                frame.index,
+                &mut dp_src_frame,
+                &mut n_src_pitch,
+                &mut frame.parameters,
+            )
+            .err()
+            {
+                tracing::error!("Failed to map video frame: {}", err);
+                return None;
             }
         }
 
