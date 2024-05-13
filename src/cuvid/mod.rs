@@ -108,7 +108,7 @@ impl Decoder {
             let res = ffi::cuvid::cuvidCtxLockCreate(&mut ctx_lock, context.context as _);
             wrap!(res, res)?;
         }
-        let (sender, receiver) = flume::unbounded();
+        let (sender, receiver) = flume::bounded(4);
 
         let mut inner = Box::new(Inner {
             parser,
@@ -450,11 +450,16 @@ impl Inner {
             video_processing_parameters
         };
 
-        let res = self.sender.as_ref().unwrap().send(PreparedFrame {
+        let sender = self.sender.as_ref().unwrap();
+        if sender.is_full() && sender.capacity().unwrap() > 0 {
+            tracing::warn!("picture display cb is full");
+        }
+        let res = sender.send(PreparedFrame {
             index: display_info.picture_index,
             parameters: video_processing_parameters,
             timestamp: display_info.timestamp,
         });
+
         if let Err(_) = res {
             return 0;
         }
