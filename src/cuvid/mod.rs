@@ -503,7 +503,7 @@ impl Inner {
 
         let sender = self.sender.as_ref().unwrap();
         if sender.is_full() && sender.capacity().unwrap() > 0 {
-            tracing::warn!("picture display cb is full");
+           // tracing::warn!("picture display cb is full");
         }
         let res = sender.send(PreparedFrame {
             index: display_info.picture_index,
