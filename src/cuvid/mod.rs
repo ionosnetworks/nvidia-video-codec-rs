@@ -215,6 +215,7 @@ impl Inner {
         tracing::debug!(
             "Video Input Information
 
+            Status: {},
             Codec: {}
             Frame Rate : {}/{}
             Sequence: {}
@@ -223,6 +224,11 @@ impl Inner {
             Chroma :{}
             Bit Depth: {}
             Minimum Surfaces: {}",
+            if self.decoder.is_null() {
+                "New"
+            } else {
+                "Reconfigure"
+            },
             fmt.codec,
             fmt.frame_rate.numerator,
             fmt.frame_rate.denominator,
@@ -293,8 +299,8 @@ impl Inner {
                 force_recreate = true;
             }
         }
-        let res_change = !(fmt.coded_width == self.coded_size.0
-            && fmt.coded_height == self.coded_size.1);
+        let res_change =
+            !(fmt.coded_width == self.coded_size.0 && fmt.coded_height == self.coded_size.1);
         /*
         let rect_change = !(pVideoFormat->display_area.bottom ==
                                   p_impl->m_videoFormat.display_area.bottom &&
@@ -389,7 +395,7 @@ impl Inner {
         video_decode_create_info.ulCreationFlags =
             ffi::cuvid::cudaVideoCreateFlags_enum_cudaVideoCreate_PreferCUVID as _;
         video_decode_create_info.ulNumDecodeSurfaces = decode_surfaces;
-        video_decode_create_info.vidLock = self.lock;
+        // video_decode_create_info.vidLock = self.lock;
         video_decode_create_info.ulWidth = video_fmt.coded_width as _;
         video_decode_create_info.ulHeight = video_fmt.coded_height as _;
         video_decode_create_info.ulMaxWidth = video_fmt.coded_width as _;
@@ -503,7 +509,7 @@ impl Inner {
 
         let sender = self.sender.as_ref().unwrap();
         if sender.is_full() && sender.capacity().unwrap() > 0 {
-           // tracing::warn!("picture display cb is full");
+            // tracing::warn!("picture display cb is full");
         }
         let res = sender.send(PreparedFrame {
             index: display_info.picture_index,
