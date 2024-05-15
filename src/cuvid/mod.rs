@@ -90,6 +90,7 @@ impl Decoder {
         decode_surfaces: Option<usize>,
         output_surfaces: Option<usize>,
         frame_timeout: Option<Duration>,
+        picture_buffer: Option<usize>,
     ) -> Result<Self, ffi::cuda::CUresult> {
         let context = match context {
             Some(context) => super::cuda::context::CuContextRef::Borrowed(context),
@@ -107,7 +108,10 @@ impl Decoder {
             let res = ffi::cuvid::cuvidCtxLockCreate(&mut ctx_lock, context.context as _);
             wrap!(res, res)?;
         }
-        let (sender, receiver) = flume::bounded(4);
+        let (sender, receiver) = match picture_buffer {
+            Some(buf) => flume::bounded(buf),
+            None => flume::unbounded(),
+        };
 
         let mut inner = Box::new(Inner {
             parser,
@@ -395,7 +399,7 @@ impl Inner {
         video_decode_create_info.ulCreationFlags =
             ffi::cuvid::cudaVideoCreateFlags_enum_cudaVideoCreate_PreferCUVID as _;
         video_decode_create_info.ulNumDecodeSurfaces = decode_surfaces;
-        // video_decode_create_info.vidLock = self.lock;
+        video_decode_create_info.vidLock = self.lock;
         video_decode_create_info.ulWidth = video_fmt.coded_width as _;
         video_decode_create_info.ulHeight = video_fmt.coded_height as _;
         video_decode_create_info.ulMaxWidth = video_fmt.coded_width as _;
@@ -508,9 +512,9 @@ impl Inner {
         };
 
         let sender = self.sender.as_ref().unwrap();
-        if sender.is_full() && sender.capacity().unwrap() > 0 {
-            // tracing::warn!("picture display cb is full");
-        }
+        //if sender.is_full() && sender.capacity().unwrap() > 0 {
+        // tracing::warn!("picture display cb is full");
+        //}
         let res = sender.send(PreparedFrame {
             index: display_info.picture_index,
             parameters: video_processing_parameters,
