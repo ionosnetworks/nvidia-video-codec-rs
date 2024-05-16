@@ -68,12 +68,12 @@ pub struct GpuFrame {
 impl Drop for GpuFrame {
     fn drop(&mut self) {
         unsafe {
-            if !ffi::cuda::cuCtxPopCurrent_v2(std::ptr::null_mut()).ok() {
-                tracing::error!("Failed to pop current context.");
-            }
-
             if !ffi::cuvid::cuvidUnmapVideoFrame64(self.decoder, self.ptr).ok() {
                 tracing::error!("Failed to unmap current frame.");
+            }
+
+            if !ffi::cuda::cuCtxPopCurrent_v2(std::ptr::null_mut()).ok() {
+                tracing::error!("Failed to pop current context.");
             }
         }
     }
