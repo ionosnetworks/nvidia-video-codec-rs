@@ -217,6 +217,9 @@ impl Drop for Decoder {
                 ffi::cuda::cuCtxPopCurrent_v2(std::ptr::null_mut());
             }
             ffi::cuvid::cuvidDestroyVideoParser(self.inner.parser);
+            self.inner
+                .frame_in_use
+                .store(0, std::sync::atomic::Ordering::SeqCst);
             ffi::cuvid::cuvidCtxLockDestroy(self.inner.lock);
         }
     }
@@ -514,6 +517,10 @@ impl Inner {
                 panic!("Waited way too long for frame to become free.");
             }
             std::thread::sleep(std::time::Duration::from_micros(500));
+        }
+        if self.decoder.is_null() {
+            tracing::debug!("decoder was dropped while waiting for frame in use.");
+            return 0;
         }
         self.set_frame_status(pic_idx, true);
 
