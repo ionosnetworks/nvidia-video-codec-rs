@@ -223,7 +223,7 @@ impl Drop for Decoder {
 }
 
 impl Inner {
-    fn frame_is_available(&self, idx: usize) -> bool {
+    fn is_frame_in_use(&self, idx: usize) -> bool {
         let f = self.frame_in_use.load(std::sync::atomic::Ordering::SeqCst);
         f & (1 << idx) != 0
     }
@@ -509,7 +509,7 @@ impl Inner {
             panic!("didn't expect pic_idx to be more than 64")
         }
         let start = std::time::Instant::now();
-        while self.frame_is_available(pic_idx) {
+        while self.is_frame_in_use(pic_idx) {
             if start.elapsed() > std::time::Duration::from_secs(5) {
                 panic!("Waited way too long for frame to become free.");
             }
