@@ -1,4 +1,6 @@
 use std::borrow::Cow;
+use std::sync::atomic::AtomicU64;
+use std::sync::Arc;
 use std::time::Duration;
 
 use super::{ffi, CudaResult};
@@ -27,6 +29,7 @@ struct Inner {
     decoder: ffi::cuvid::CUvideodecoder,
     keyframe_only: bool,
     requested_size: (u32, u32),
+    frame_in_use: Arc<AtomicU64>,
 
     video_fmt: Option<ffi::cuvid::CUVIDEOFORMAT>,
     codec: Codec,
@@ -62,6 +65,8 @@ pub struct GpuFrame {
     pub ptr: CUdeviceptr,
     pub pitch: u32,
     pub timestamp: i64,
+    frame_in_use: Arc<AtomicU64>,
+    idx: i32,
     decoder: ffi::cuvid::CUvideodecoder,
 }
 
@@ -75,6 +80,10 @@ impl Drop for GpuFrame {
             if !ffi::cuda::cuCtxPopCurrent_v2(std::ptr::null_mut()).ok() {
                 tracing::error!("Failed to pop current context.");
             }
+
+            let v = !(1 << self.idx);
+            self.frame_in_use
+                .fetch_and(v, std::sync::atomic::Ordering::SeqCst);
         }
     }
 }
@@ -120,6 +129,7 @@ impl Decoder {
             lock: ctx_lock,
             chroma_format: VideoChromaFormat::Monochrome,
             decoder: std::ptr::null_mut(),
+            frame_in_use: Default::default(),
             keyframe_only,
             video_fmt: None,
             bit_depth_minus8: 0,
@@ -200,19 +210,36 @@ impl Decoder {
 impl Drop for Decoder {
     fn drop(&mut self) {
         unsafe {
-            ffi::cuvid::cuvidDestroyVideoParser(self.inner.parser);
-
             if !self.inner.decoder.is_null() {
                 ffi::cuda::cuCtxPushCurrent_v2(self.inner.context.context);
                 ffi::cuvid::cuvidDestroyDecoder(self.inner.decoder);
+                self.inner.decoder = std::ptr::null_mut();
                 ffi::cuda::cuCtxPopCurrent_v2(std::ptr::null_mut());
             }
+            ffi::cuvid::cuvidDestroyVideoParser(self.inner.parser);
             ffi::cuvid::cuvidCtxLockDestroy(self.inner.lock);
         }
     }
 }
 
 impl Inner {
+    fn frame_is_available(&self, idx: usize) -> bool {
+        let f = self.frame_in_use.load(std::sync::atomic::Ordering::SeqCst);
+        f & (1 << idx) != 0
+    }
+
+    fn set_frame_status(&self, idx: usize, status: bool) {
+        if status {
+            let v = 1 << idx;
+            self.frame_in_use
+                .fetch_or(v, std::sync::atomic::Ordering::SeqCst);
+        } else {
+            let v = !(1 << idx);
+            self.frame_in_use
+                .fetch_and(v, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+
     fn sequence_cb(&mut self, video_fmt: *mut ffi::cuvid::CUVIDEOFORMAT) -> i32 {
         let fmt = unsafe { &*video_fmt };
 
@@ -474,6 +501,22 @@ impl Inner {
             tracing::error!("picture_decode_cb called but decoder is not initialized.");
             return 0;
         }
+        let pic_idx = unsafe {
+            let pic_params = unsafe { &*pic_params };
+            pic_params.CurrPicIdx as usize
+        };
+        if pic_idx >= 64 {
+            panic!("didn't expect pic_idx to be more than 64")
+        }
+        let start = std::time::Instant::now();
+        while self.frame_is_available(pic_idx) {
+            if start.elapsed() > std::time::Duration::from_secs(5) {
+                panic!("Waited way too long for frame to become free.");
+            }
+            std::thread::sleep(std::time::Duration::from_micros(500));
+        }
+        self.set_frame_status(pic_idx, true);
+
         unsafe {
             if !ffi::cuda::cuCtxPushCurrent_v2(self.context.context).ok() {
                 return 0;
@@ -559,6 +602,7 @@ impl<'a, 'b> Iterator for FramesIter<'a, 'b> {
             .ok()
             {
                 tracing::error!("Failed to push current context.");
+                ffi::cuda::cuCtxPopCurrent_v2(std::ptr::null_mut());
                 return None;
             }
 
@@ -573,6 +617,7 @@ impl<'a, 'b> Iterator for FramesIter<'a, 'b> {
                         == ffi::cuvid::cuvidDecodeStatus_enum_cuvidDecodeStatus_Error_Concealed
                 {
                     tracing::error!("Decoding error occured");
+                    ffi::cuda::cuCtxPopCurrent_v2(std::ptr::null_mut());
                     return None;
                 }
             }
@@ -588,6 +633,7 @@ impl<'a, 'b> Iterator for FramesIter<'a, 'b> {
             .err()
             {
                 tracing::error!("Failed to map video frame: {}", err);
+                ffi::cuda::cuCtxPopCurrent_v2(std::ptr::null_mut());
                 return None;
             }
         }
@@ -599,6 +645,8 @@ impl<'a, 'b> Iterator for FramesIter<'a, 'b> {
             pitch: n_src_pitch,
             timestamp: frame.timestamp(),
             decoder: self.inner.decoder,
+            idx: frame.index,
+            frame_in_use: Arc::clone(&self.inner.frame_in_use),
         };
 
         Some(frame)
