@@ -434,8 +434,10 @@ impl Inner {
         video_decode_create_info.ulHeight = video_fmt.coded_height as _;
         video_decode_create_info.ulMaxWidth = video_fmt.coded_width as _;
         video_decode_create_info.ulMaxHeight = video_fmt.coded_height as _;
-        video_decode_create_info.ulTargetWidth = video_fmt.coded_width as _;
-        video_decode_create_info.ulTargetHeight = video_fmt.coded_height as _;
+        video_decode_create_info.ulTargetWidth =
+            video_fmt.display_area.right - video_fmt.display_area.left;
+        video_decode_create_info.ulTargetHeight =
+            video_fmt.display_area.bottom - video_fmt.display_area.top;
         video_decode_create_info.ulIntraDecodeOnly = if self.keyframe_only { 1 } else { 0 };
 
         if self.requested_size.0 > 0 && self.requested_size.1 > 0 {
@@ -512,11 +514,19 @@ impl Inner {
             panic!("didn't expect pic_idx to be more than 64")
         }
         let start = std::time::Instant::now();
+        let mut warned = false;
         while self.is_frame_in_use(pic_idx) {
-            if start.elapsed() > std::time::Duration::from_secs(5) {
-                panic!("Waited way too long for frame to become free.");
+            if start.elapsed() > std::time::Duration::from_secs(5) && !warned {
+                tracing::warn!("Waited way too long for frame to become free.");
+                warned = true;
             }
             std::thread::sleep(std::time::Duration::from_micros(500));
+        }
+        if start.elapsed() > std::time::Duration::from_secs(5) {
+            tracing::warn!(
+                "Waited way {}ms for frame to become free.",
+                start.elapsed().as_millis()
+            );
         }
         if self.decoder.is_null() {
             tracing::debug!("decoder was dropped while waiting for frame in use.");
