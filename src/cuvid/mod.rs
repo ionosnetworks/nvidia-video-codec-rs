@@ -435,9 +435,9 @@ impl Inner {
         video_decode_create_info.ulMaxWidth = video_fmt.coded_width as _;
         video_decode_create_info.ulMaxHeight = video_fmt.coded_height as _;
         video_decode_create_info.ulTargetWidth =
-            video_fmt.display_area.right - video_fmt.display_area.left;
+            (video_fmt.display_area.right - video_fmt.display_area.left) as _;
         video_decode_create_info.ulTargetHeight =
-            video_fmt.display_area.bottom - video_fmt.display_area.top;
+            (video_fmt.display_area.bottom - video_fmt.display_area.top) as _;
         video_decode_create_info.ulIntraDecodeOnly = if self.keyframe_only { 1 } else { 0 };
 
         if self.requested_size.0 > 0 && self.requested_size.1 > 0 {
