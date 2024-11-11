@@ -52,6 +52,7 @@ fn main() {
     //println!("cargo:rustc-link-lib=dylib={}", "nvidia-encode");
     println!("cargo:rustc-link-lib=dylib={}", "nppc");
     println!("cargo:rustc-link-lib=dylib={}", "nppicc");
+    println!("cargo:rustc-link-lib=dylib={}", "nppial");
     println!(r"cargo:rustc-link-search=/usr/local/cuda/lib64");
 
     let cuda_builder = common_builder()
@@ -84,6 +85,11 @@ fn main() {
         .header(
             cuda_include
                 .join("nppi_data_exchange_and_initialization.h")
+                .to_string_lossy(),
+        )
+        .header(
+            cuda_include
+                .join("nppi_arithmetic_and_logical_operations.h")
                 .to_string_lossy(),
         );
 
