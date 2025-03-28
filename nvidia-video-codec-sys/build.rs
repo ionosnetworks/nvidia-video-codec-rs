@@ -65,7 +65,8 @@ fn main() {
         .clang_arg(format!("-I{}", nvc_include.to_string_lossy()))
         .clang_arg(format!("-I{}", cuda_include.to_string_lossy()))
         .header(nvc_include.join("nvcuvid.h").to_string_lossy())
-        .header(nvc_include.join("nvEncodeAPI.h").to_string_lossy());
+        .header(nvc_include.join("nvEncodeAPI.h").to_string_lossy())
+        .derive_partialeq(true);
 
     format_write(cuvid_builder, "src/cuvid.rs");
 
