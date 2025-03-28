@@ -48,8 +48,7 @@ fn main() {
     // TODO support windows
     println!("cargo:rustc-link-lib=dylib={}", "cuda");
     println!("cargo:rustc-link-lib=dylib={}", "nvcuvid");
-    //println!("cargo:rustc-link-lib=dylib={}", "nvidia-encode");
-    //println!("cargo:rustc-link-lib=dylib={}", "nvidia-encode");
+    println!("cargo:rustc-link-lib=dylib={}", "nvidia-encode");
     println!("cargo:rustc-link-lib=dylib={}", "nppc");
     println!("cargo:rustc-link-lib=dylib={}", "nppicc");
     println!("cargo:rustc-link-lib=dylib={}", "nppial");
@@ -65,7 +64,8 @@ fn main() {
     let cuvid_builder = common_builder()
         .clang_arg(format!("-I{}", nvc_include.to_string_lossy()))
         .clang_arg(format!("-I{}", cuda_include.to_string_lossy()))
-        .header(nvc_include.join("nvcuvid.h").to_string_lossy());
+        .header(nvc_include.join("nvcuvid.h").to_string_lossy())
+        .header(nvc_include.join("nvEncodeAPI.h").to_string_lossy());
 
     format_write(cuvid_builder, "src/cuvid.rs");
 
