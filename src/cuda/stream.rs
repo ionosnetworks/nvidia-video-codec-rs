@@ -1,6 +1,3 @@
-use std::os::raw::c_char;
-use std::os::raw::c_int;
-
 use super::CudaResult;
 use ffi::cuda::*;
 

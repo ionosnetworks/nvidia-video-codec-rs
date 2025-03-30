@@ -1,9 +1,9 @@
 // TODO do w/out the unions?
 // #![feature(untagged_unions)]
 
-#[allow(improper_ctypes)]
+#[allow(improper_ctypes, clashing_extern_declarations)]
 pub mod cuda;
-#[allow(improper_ctypes)]
+#[allow(improper_ctypes, clashing_extern_declarations)]
 pub mod cuvid;
 #[allow(improper_ctypes)]
 pub mod npp;
