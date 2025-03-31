@@ -615,7 +615,7 @@ impl BitStream {
         })
     }
 
-    pub fn to_vec(&self) -> Result<(Vec<u8>, u64, u64), ffi::cuda::CUresult> {
+    pub fn to_vec(&self) -> Result<(Vec<u8>, bool, u64, u64), ffi::cuda::CUresult> {
         let mut params: ffi::cuvid::NV_ENC_LOCK_BITSTREAM = unsafe { std::mem::zeroed() };
         params.version = NV_ENC_LOCK_BITSTREAM_VER;
         params.outputBitstream = self.inner.as_ptr();
@@ -638,8 +638,9 @@ impl BitStream {
                 NVENC_LIB.nvEncUnlockBitstream.unwrap()(self.encoder.as_ptr(), self.inner.as_ptr());
             wrap!(res, res)?;
         };
+        let is_idr = params.pictureType == ffi::cuvid::_NV_ENC_PIC_TYPE_NV_ENC_PIC_TYPE_IDR;
 
-        Ok((data, params.outputDuration, params.outputTimeStamp))
+        Ok((data, is_idr, params.outputDuration, params.outputTimeStamp))
     }
 
     fn as_ptr(&self) -> *mut std::os::raw::c_void {
@@ -665,7 +666,7 @@ pub struct FramesIter {
 }
 
 impl Iterator for FramesIter {
-    type Item = (Vec<u8>, u64, u64);
+    type Item = (Vec<u8>, bool, u64, u64);
 
     fn next(&mut self) -> Option<Self::Item> {
         let input_resource = self.receiver.recv().ok()?;
