@@ -244,7 +244,7 @@ impl Inner {
             fmt.min_num_decode_surfaces,
         );
 
-        let min_surfaces = fmt.min_num_decode_surfaces + 3;
+        let min_surfaces = fmt.min_num_decode_surfaces;
 
         let mut decode_caps: ffi::cuvid::CUVIDDECODECAPS = unsafe { std::mem::zeroed() };
         decode_caps.eCodecType = fmt.codec;
@@ -376,7 +376,7 @@ impl Inner {
         self.video_fmt = Some(*fmt);
         let video_fmt = self.video_fmt.as_ref().unwrap();
         let decode_surfaces =
-            (min_surfaces as u64).max(self.requested_decode_surfaces.unwrap_or(0) as u64);
+            (min_surfaces as u64).max(self.requested_decode_surfaces.unwrap_or(1) as u64);
 
         let mut video_decode_create_info: ffi::cuvid::CUVIDDECODECREATEINFO =
             unsafe { std::mem::zeroed() };
@@ -390,8 +390,11 @@ impl Inner {
         } else {
             ffi::cuvid::cudaVideoDeinterlaceMode_enum_cudaVideoDeinterlaceMode_Adaptive
         };
-        video_decode_create_info.ulNumOutputSurfaces =
-            self.requested_output_surfaces.unwrap_or(3) as _;
+        video_decode_create_info.ulNumOutputSurfaces = self
+            .requested_output_surfaces
+            .map(|n| n as u64)
+            .unwrap_or(decode_surfaces)
+            .max(decode_surfaces);
         video_decode_create_info.ulCreationFlags =
             ffi::cuvid::cudaVideoCreateFlags_enum_cudaVideoCreate_PreferCUVID as _;
         video_decode_create_info.ulNumDecodeSurfaces = decode_surfaces;
