@@ -366,8 +366,9 @@ impl Encoder {
         preset_config.presetCfg.encodeCodecConfig.h264Config.spsId = 1;
         preset_config.presetCfg.encodeCodecConfig.h264Config.ppsId = 1;
         preset_config.presetCfg.rcParams.rateControlMode =
-            ffi::cuvid::_NV_ENC_MULTI_PASS_NV_ENC_MULTI_PASS_DISABLED;
+            ffi::cuvid::_NV_ENC_MULTI_PASS_NV_ENC_TWO_PASS_FULL_RESOLUTION;
         preset_config.presetCfg.rcParams.set_enableLookahead(0);
+        //preset_config.presetCfg.profileGUID = selected_profile;
 
         match bitrate {
             super::Bitrate::CQP => {
