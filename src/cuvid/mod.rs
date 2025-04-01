@@ -13,3 +13,10 @@ pub use self::decoder::Decoder;
 pub use self::encoder::Encoder;
 pub use self::gpu_frame::GpuFrame;
 pub use self::surface::VideoSurfaceFormat;
+
+#[derive(Copy, Clone, Debug)]
+pub enum Bitrate {
+    CQP,
+    CBR(u32),
+    VBR(u32),
+}

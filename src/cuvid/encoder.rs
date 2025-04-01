@@ -51,11 +51,11 @@ static NVENC_LIB: once_cell::sync::Lazy<FunctionList> = once_cell::sync::Lazy::n
 // pub const NV_ENC_CREATE_INPUT_BUFFER_VER: u32 = NVENCAPI_STRUCT_VERSION(1);
 pub const NV_ENC_CREATE_BITSTREAM_BUFFER_VER: u32 = NVENCAPI_STRUCT_VERSION(1);
 // pub const NV_ENC_CREATE_MV_BUFFER_VER: u32 = NVENCAPI_STRUCT_VERSION(1);
-pub const NV_ENC_RC_PARAMS_VER: u32 = NVENCAPI_STRUCT_VERSION(1);
+// pub const NV_ENC_RC_PARAMS_VER: u32 = NVENCAPI_STRUCT_VERSION(1);
 pub const NV_ENC_CONFIG_VER: u32 = NVENCAPI_STRUCT_VERSION(8) | (1 << 31);
 pub const NV_ENC_INITIALIZE_PARAMS_VER: u32 = NVENCAPI_STRUCT_VERSION(6) | (1 << 31);
 // pub const NV_ENC_RECONFIGURE_PARAMS_VER: u32 = NVENCAPI_STRUCT_VERSION(1) | (1 << 31);
-// pub const NV_ENC_PRESET_CONFIG_VER: u32 = NVENCAPI_STRUCT_VERSION(4) | (1 << 31);
+pub const NV_ENC_PRESET_CONFIG_VER: u32 = NVENCAPI_STRUCT_VERSION(4) | (1 << 31);
 // pub const NV_ENC_PIC_PARAMS_MVC_VER: u32 = NVENCAPI_STRUCT_VERSION(1);
 pub const NV_ENC_PIC_PARAMS_VER: u32 = NVENCAPI_STRUCT_VERSION(6) | (1 << 31);
 // pub const NV_ENC_MEONLY_PARAMS_VER: u32 = NVENCAPI_STRUCT_VERSION(3);
@@ -86,11 +86,19 @@ pub const NV_ENC_CODEC_HEVC_GUID: ffi::cuvid::GUID = ffi::cuvid::GUID {
     Data4: [0x94, 0x25, 0xbd, 0xa9, 0x97, 0x5f, 0x76, 0x3],
 };
 
+#[allow(dead_code)]
 pub const NV_ENC_PRESET_LOSSLESS_DEFAULT_GUID: ffi::cuvid::GUID = ffi::cuvid::GUID {
     Data1: 0xd5bfb716,
     Data2: 0xc604,
     Data3: 0x44e7,
     Data4: [0x9b, 0xb8, 0xde, 0xa5, 0x51, 0xf, 0xc3, 0xac],
+};
+
+pub const NV_ENC_PRESET_P7_GUID: ffi::cuvid::GUID = ffi::cuvid::GUID {
+    Data1: 0x84848c12,
+    Data2: 0x6f71,
+    Data3: 0x4c13,
+    Data4: [0x93, 0x1b, 0x53, 0xe2, 0x83, 0xf5, 0x79, 0x74],
 };
 
 #[allow(dead_code)]
@@ -134,7 +142,7 @@ impl Encoder {
         gpu_id: usize,
         context: Option<&'static super::super::cuda::context::CuContext>,
         codec: Codec,
-        bitrate: u32,
+        bitrate: super::Bitrate,
         output_size: (u32, u32),
         framerate: (u32, u32),
         surfaces: NonZeroUsize,
@@ -227,7 +235,7 @@ impl Encoder {
             presets
         };
 
-        let selected_preset = NV_ENC_PRESET_LOSSLESS_DEFAULT_GUID;
+        let selected_preset = NV_ENC_PRESET_P7_GUID;
 
         let profiles = unsafe {
             let profile_count = {
@@ -267,7 +275,7 @@ impl Encoder {
             }
         };
 
-        let selected_profile = match selected_profile {
+        let _selected_profile = match selected_profile {
             Some(profile) => *profile,
             None => return Err(ffi::cuda::cudaError_enum_CUDA_ERROR_UNKNOWN + 3),
         };
@@ -307,7 +315,86 @@ impl Encoder {
             None => return Err(ffi::cuda::cudaError_enum_CUDA_ERROR_UNKNOWN + 4),
         };
 
-        let mut encode_config: ffi::cuvid::NV_ENC_CONFIG = unsafe { std::mem::zeroed() };
+        let mut preset_config: ffi::cuvid::NV_ENC_PRESET_CONFIG = unsafe { std::mem::zeroed() };
+        preset_config.version = NV_ENC_PRESET_CONFIG_VER;
+        preset_config.presetCfg.version = NV_ENC_CONFIG_VER;
+        unsafe {
+            let res = NVENC_LIB.nvEncGetEncodePresetConfigEx.unwrap()(
+                encoder.as_ptr(),
+                selected_codec,
+                selected_preset,
+                ffi::cuvid::NV_ENC_TUNING_INFO_NV_ENC_TUNING_INFO_LOSSLESS,
+                &mut preset_config,
+            );
+            wrap!(res, res)?;
+        }
+
+        unsafe {
+            preset_config
+                .presetCfg
+                .encodeCodecConfig
+                .h264Config
+                .set_repeatSPSPPS(1)
+        };
+
+        preset_config.presetCfg.gopLength = framerate.1 / framerate.0;
+        preset_config.presetCfg.frameIntervalP = 1;
+        preset_config.presetCfg.frameFieldMode =
+            ffi::cuvid::_NV_ENC_PARAMS_FRAME_FIELD_MODE_NV_ENC_PARAMS_FRAME_FIELD_MODE_FRAME;
+        unsafe {
+            preset_config
+                .presetCfg
+                .encodeCodecConfig
+                .h264Config
+                .set_repeatSPSPPS(1);
+            preset_config
+                .presetCfg
+                .encodeCodecConfig
+                .h264Config
+                .set_hierarchicalBFrames(0);
+        }
+        preset_config
+            .presetCfg
+            .encodeCodecConfig
+            .h264Config
+            .useBFramesAsRef = 0;
+        preset_config
+            .presetCfg
+            .encodeCodecConfig
+            .h264Config
+            .idrPeriod = 0;
+        preset_config.presetCfg.encodeCodecConfig.h264Config.spsId = 1;
+        preset_config.presetCfg.encodeCodecConfig.h264Config.ppsId = 1;
+        preset_config.presetCfg.rcParams.rateControlMode =
+            ffi::cuvid::_NV_ENC_MULTI_PASS_NV_ENC_MULTI_PASS_DISABLED;
+        preset_config.presetCfg.rcParams.set_enableLookahead(0);
+
+        match bitrate {
+            super::Bitrate::CQP => {
+                preset_config.presetCfg.rcParams.rateControlMode =
+                    ffi::cuvid::_NV_ENC_PARAMS_RC_MODE_NV_ENC_PARAMS_RC_CONSTQP;
+            }
+            super::Bitrate::CBR(bitrate) => {
+                preset_config.presetCfg.rcParams.rateControlMode =
+                    ffi::cuvid::_NV_ENC_PARAMS_RC_MODE_NV_ENC_PARAMS_RC_CBR;
+                preset_config.presetCfg.rcParams.averageBitRate = bitrate;
+            }
+            super::Bitrate::VBR(bitrate) => {
+                preset_config.presetCfg.rcParams.rateControlMode =
+                    ffi::cuvid::_NV_ENC_PARAMS_RC_MODE_NV_ENC_PARAMS_RC_VBR;
+                preset_config.presetCfg.rcParams.maxBitRate = bitrate;
+            }
+        }
+
+        //  println!("rcParams {:#?}", preset_config.presetCfg.rcParams);
+        // println!("h264Config {:#?}", unsafe {
+        //    preset_config.presetCfg.encodeCodecConfig.h264Config
+        // });
+
+        //println!("encodeCodecConfig {:?}", preset_config.presetCfg);
+        // println!("{:?}", preset_config.presetCfg);
+
+        /* let mut encode_config: ffi::cuvid::NV_ENC_CONFIG = unsafe { std::mem::zeroed() };
         encode_config.version = NV_ENC_CONFIG_VER;
         encode_config.profileGUID = selected_profile;
         encode_config.gopLength = 50; // 2 seconds
@@ -321,16 +408,17 @@ impl Encoder {
         encode_config.rcParams.rateControlMode =
             ffi::cuvid::_NV_ENC_PARAMS_RC_MODE_NV_ENC_PARAMS_RC_VBR;
         encode_config.rcParams.averageBitRate = bitrate;
+         */
 
         let mut params: ffi::cuvid::NV_ENC_INITIALIZE_PARAMS = unsafe { std::mem::zeroed() };
         params.version = NV_ENC_INITIALIZE_PARAMS_VER;
         params.encodeGUID = selected_codec;
-        params.presetGUID = selected_preset;
+        // params.presetGUID = selected_preset;
         params.encodeWidth = output_size.0;
         params.encodeHeight = output_size.1;
         //params.darWidth = output_size.0;
         //params.darHeight = output_size.1;
-        //params.encodeConfig = &mut encode_config;
+        params.encodeConfig = &mut preset_config.presetCfg;
         params.bufferFormat = selected_input_format;
         params.frameRateNum = framerate.0;
         params.frameRateDen = framerate.1;
@@ -340,7 +428,6 @@ impl Encoder {
             let res = NVENC_LIB.nvEncInitializeEncoder.unwrap()(encoder.as_ptr(), &mut params);
             wrap!(res, res)?;
         }
-
         let (sender, receiver) = flume::bounded(surfaces.get());
 
         let inner = Box::new(Inner {
@@ -365,6 +452,7 @@ impl Encoder {
     pub fn queue_gpu_frame(
         &mut self,
         frame: GpuFrame,
+        duration: u64,
         copy: bool,
     ) -> Result<bool, ffi::cuda::CUresult> {
         if self.inner.sender.is_none() {
@@ -409,6 +497,7 @@ impl Encoder {
         pic_params.inputPitch = pitch as _;
         pic_params.encodePicFlags = 0;
         pic_params.frameIdx = 0;
+        pic_params.inputDuration = duration;
 
         let resource = MappedInputResource::new(
             &self.inner.encoder,
