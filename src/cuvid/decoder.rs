@@ -593,6 +593,12 @@ pub struct FramesIter<'a, 'b> {
 }
 
 impl<'a, 'b> FramesIter<'a, 'b> {
+    pub fn next_timeout(&mut self, timeout: Duration) -> Result<Option<GpuFrame>, ()> {
+        let frame = self.inner.receiver.recv_timeout(timeout).map_err(|_| ())?;
+
+        Ok(self.map_frame(frame))
+    }
+
     fn map_frame(&self, mut frame: PreparedFrame) -> Option<GpuFrame> {
         let mut dp_src_frame: CUdeviceptr = 0;
         let mut n_src_pitch = 0u32;
