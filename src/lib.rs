@@ -1,6 +1,8 @@
 use std::cell::RefCell;
 use std::mem::MaybeUninit;
 
+#[cfg(feature = "async")]
+pub extern crate futures;
 pub extern crate nvidia_video_codec_sys as ffi;
 
 #[macro_use]

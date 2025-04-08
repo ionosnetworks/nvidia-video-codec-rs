@@ -171,6 +171,28 @@ impl Decoder {
             context,
         }
     }
+
+    #[cfg(feature = "async")]
+    pub fn stream<'a, 'b>(
+        &'a self,
+        context: Option<&'b super::super::cuda::context::CuContext>,
+    ) -> impl futures::Stream<Item = GpuFrame> + use<'a, 'b> {
+        use futures::StreamExt;
+        let frame_timeout = self.inner.frame_timeout;
+        self.inner
+            .receiver
+            .stream()
+            .map(move |frame| {
+                let f = FramesIter {
+                    inner: &self.inner,
+                    frame_timeout,
+                    context,
+                };
+                f.map_frame(frame)
+            })
+            .take_while(|f| futures::future::ready(f.is_some()))
+            .map(|f| f.unwrap())
+    }
 }
 
 impl Drop for Decoder {
@@ -567,15 +589,8 @@ pub struct FramesIter<'a, 'b> {
     frame_timeout: Option<Duration>,
 }
 
-impl<'a, 'b> Iterator for FramesIter<'a, 'b> {
-    type Item = GpuFrame;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let mut frame = match self.frame_timeout {
-            Some(timeout) => self.inner.receiver.recv_timeout(timeout).ok()?,
-            None => self.inner.receiver.recv().ok()?,
-        };
-
+impl<'a, 'b> FramesIter<'a, 'b> {
+    fn map_frame(&self, mut frame: PreparedFrame) -> Option<GpuFrame> {
         let mut dp_src_frame: CUdeviceptr = 0;
         let mut n_src_pitch = 0u32;
 
@@ -636,6 +651,19 @@ impl<'a, 'b> Iterator for FramesIter<'a, 'b> {
         };
 
         Some(frame)
+    }
+}
+
+impl<'a, 'b> Iterator for FramesIter<'a, 'b> {
+    type Item = GpuFrame;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let frame = match self.frame_timeout {
+            Some(timeout) => self.inner.receiver.recv_timeout(timeout).ok()?,
+            None => self.inner.receiver.recv().ok()?,
+        };
+
+        self.map_frame(frame)
     }
 }
 
