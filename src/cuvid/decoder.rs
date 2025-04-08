@@ -48,6 +48,9 @@ struct PreparedFrame {
     parameters: ffi::cuvid::CUVIDPROCPARAMS,
 }
 
+unsafe impl Send for PreparedFrame {}
+unsafe impl Sync for PreparedFrame {}
+
 impl PreparedFrame {
     fn timestamp(&self) -> i64 {
         self.timestamp
