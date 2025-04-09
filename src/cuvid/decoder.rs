@@ -511,14 +511,18 @@ impl Inner {
         let mut warned = false;
         while self.is_frame_in_use(pic_idx) {
             if start.elapsed() > std::time::Duration::from_secs(5) && !warned {
-                tracing::warn!("Waited way too long for frame to become free.");
+                tracing::warn!(
+                    idx = pic_idx,
+                    "Waited way too long for frame to become free."
+                );
                 warned = true;
             }
             std::thread::sleep(std::time::Duration::from_micros(500));
         }
         if start.elapsed() > std::time::Duration::from_secs(5) {
             tracing::warn!(
-                "Waited way {}ms for frame to become free.",
+                idx = pic_idx,
+                "Waited {}ms for frame to become free.",
                 start.elapsed().as_millis()
             );
         }
