@@ -616,22 +616,6 @@ impl<'a, 'b> FramesIter<'a, 'b> {
                 return None;
             }
 
-            let mut decode_status: ffi::cuvid::CUVIDGETDECODESTATUS = std::mem::zeroed();
-
-            if ffi::cuvid::cuvidGetDecodeStatus(self.inner.decoder, frame.index, &mut decode_status)
-                .ok()
-            {
-                if decode_status.decodeStatus
-                    == ffi::cuvid::cuvidDecodeStatus_enum_cuvidDecodeStatus_Error
-                    || decode_status.decodeStatus
-                        == ffi::cuvid::cuvidDecodeStatus_enum_cuvidDecodeStatus_Error_Concealed
-                {
-                    tracing::error!("Decoding error occured");
-                    ffi::cuda::cuCtxPopCurrent_v2(std::ptr::null_mut());
-                    return None;
-                }
-            }
-
             // tracing::info!("{}: {}", context.is_some(), frame.index);
             if let Err(err) = ffi::cuvid::cuvidMapVideoFrame64(
                 self.inner.decoder,
@@ -645,6 +629,19 @@ impl<'a, 'b> FramesIter<'a, 'b> {
                 tracing::error!("Failed to map video frame: {}", err);
                 ffi::cuda::cuCtxPopCurrent_v2(std::ptr::null_mut());
                 return None;
+            }
+
+            let mut decode_status: ffi::cuvid::CUVIDGETDECODESTATUS = std::mem::zeroed();
+            if ffi::cuvid::cuvidGetDecodeStatus(self.inner.decoder, frame.index, &mut decode_status)
+                .ok()
+            {
+                if decode_status.decodeStatus
+                    == ffi::cuvid::cuvidDecodeStatus_enum_cuvidDecodeStatus_Error
+                    || decode_status.decodeStatus
+                        == ffi::cuvid::cuvidDecodeStatus_enum_cuvidDecodeStatus_Error_Concealed
+                {
+                    tracing::warn!("Decoding error occured");
+                }
             }
         }
 
