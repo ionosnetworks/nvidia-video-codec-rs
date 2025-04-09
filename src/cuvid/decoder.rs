@@ -602,6 +602,7 @@ impl<'a, 'b> FramesIter<'a, 'b> {
     fn map_frame(&self, mut frame: PreparedFrame) -> Option<GpuFrame> {
         let mut dp_src_frame: CUdeviceptr = 0;
         let mut n_src_pitch = 0u32;
+        let mut has_concealed_error = None;
 
         unsafe {
             if !ffi::cuda::cuCtxPushCurrent_v2(
@@ -639,11 +640,13 @@ impl<'a, 'b> FramesIter<'a, 'b> {
                     == ffi::cuvid::cuvidDecodeStatus_enum_cuvidDecodeStatus_Error
                 {
                     tracing::warn!(concealed = false, "Decoding error occured");
+                    has_concealed_error = Some(false);
                 }
                 if decode_status.decodeStatus
                     == ffi::cuvid::cuvidDecodeStatus_enum_cuvidDecodeStatus_Error_Concealed
                 {
                     tracing::warn!(concealed = true, "Decoding error occured");
+                    has_concealed_error = Some(true);
                 }
             }
         }
@@ -656,6 +659,7 @@ impl<'a, 'b> FramesIter<'a, 'b> {
             timestamp: frame.timestamp(),
             decoder: self.inner.decoder,
             idx: frame.index,
+            has_concealed_error,
             frame_in_use: Arc::clone(&self.inner.frame_in_use),
         };
 

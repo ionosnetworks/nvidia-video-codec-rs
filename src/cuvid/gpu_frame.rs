@@ -11,6 +11,7 @@ pub struct GpuFrame {
     pub ptr: CUdeviceptr,
     pub pitch: u32,
     pub timestamp: i64,
+    pub has_concealed_error: Option<bool>,
     pub(crate) frame_in_use: Arc<AtomicU64>,
     pub(crate) idx: i32,
     pub(crate) decoder: CUvideodecoder,
