@@ -637,10 +637,13 @@ impl<'a, 'b> FramesIter<'a, 'b> {
             {
                 if decode_status.decodeStatus
                     == ffi::cuvid::cuvidDecodeStatus_enum_cuvidDecodeStatus_Error
-                    || decode_status.decodeStatus
-                        == ffi::cuvid::cuvidDecodeStatus_enum_cuvidDecodeStatus_Error_Concealed
                 {
-                    tracing::warn!("Decoding error occured");
+                    tracing::warn!(concealed = false, "Decoding error occured");
+                }
+                if decode_status.decodeStatus
+                    == ffi::cuvid::cuvidDecodeStatus_enum_cuvidDecodeStatus_Error_Concealed
+                {
+                    tracing::warn!(concealed = true, "Decoding error occured");
                 }
             }
         }
