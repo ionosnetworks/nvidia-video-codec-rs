@@ -24,10 +24,6 @@ impl Drop for GpuFrame {
                 tracing::error!("Failed to unmap current frame.");
             }
 
-            if !ffi::cuda::cuCtxPopCurrent_v2(std::ptr::null_mut()).ok() {
-                tracing::error!("Failed to pop current context.");
-            }
-
             let v = !(1 << self.idx);
             self.frame_in_use
                 .fetch_and(v, std::sync::atomic::Ordering::SeqCst);

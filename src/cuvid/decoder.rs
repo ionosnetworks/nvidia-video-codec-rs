@@ -664,6 +664,9 @@ impl<'a, 'b> FramesIter<'a, 'b> {
                     has_concealed_error = Some(true);
                 }
             }
+            if !ffi::cuda::cuCtxPopCurrent_v2(std::ptr::null_mut()).ok() {
+                tracing::error!("Failed to pop current context.");
+            }
         }
 
         let frame = GpuFrame {
