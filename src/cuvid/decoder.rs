@@ -628,15 +628,13 @@ impl<'a, 'b> FramesIter<'a, 'b> {
         let mut dp_src_frame: CUdeviceptr = 0;
         let mut n_src_pitch = 0u32;
         let mut has_concealed_error = None;
+        let context = self
+            .context
+            .map(|c| c.context)
+            .unwrap_or(self.inner.context.context);
 
         unsafe {
-            if !ffi::cuda::cuCtxPushCurrent_v2(
-                self.context
-                    .map(|c| c.context)
-                    .unwrap_or(self.inner.context.context),
-            )
-            .ok()
-            {
+            if !ffi::cuda::cuCtxPushCurrent_v2(context).ok() {
                 tracing::error!("Failed to push current context.");
                 ffi::cuda::cuCtxPopCurrent_v2(std::ptr::null_mut());
                 return None;
@@ -696,6 +694,7 @@ impl<'a, 'b> FramesIter<'a, 'b> {
             has_concealed_error,
             frame_in_use: Arc::clone(&self.inner.frame_in_use),
             frames_in_flight: Arc::clone(&self.inner.frames_in_flight),
+            context,
         };
 
         Some(frame)
