@@ -1,4 +1,4 @@
-use std::sync::atomic::{AtomicBool, AtomicU64};
+use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
@@ -204,10 +204,12 @@ impl Decoder {
 
 impl Drop for Decoder {
     fn drop(&mut self) {
-        let (lock, cvar) = &*self.inner.frames_in_flight;
-        let mut count = lock.lock().unwrap();
-        while *count > 0 {
-            count = cvar.wait(count).unwrap();
+        {
+            let (lock, cvar) = &*self.inner.frames_in_flight;
+            let mut count = lock.lock().unwrap();
+            while *count > 0 {
+                count = cvar.wait(count).unwrap();
+            }
         }
         unsafe {
             if !self.inner.decoder.is_null() {

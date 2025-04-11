@@ -29,7 +29,6 @@ impl Drop for GpuFrame {
                 let (lock, cvar) = &*self.frames_in_flight;
                 let mut count = lock.lock().unwrap();
                 *count = *count - 1;
-                // We notify the condvar that the value has changed.
                 cvar.notify_one();
             }
 
