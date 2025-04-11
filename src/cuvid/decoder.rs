@@ -1,5 +1,5 @@
-use std::sync::atomic::AtomicU64;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64};
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
 use super::{ffi, CudaResult, GpuFrame};
@@ -27,6 +27,7 @@ struct Inner {
     keyframe_only: bool,
     requested_size: (u32, u32),
     frame_in_use: Arc<AtomicU64>,
+    frames_in_flight: Arc<(Mutex<usize>, Condvar)>,
 
     video_fmt: Option<ffi::cuvid::CUVIDEOFORMAT>,
     codec: Codec,
@@ -101,6 +102,7 @@ impl Decoder {
             chroma_format: VideoChromaFormat::Monochrome,
             decoder: std::ptr::null_mut(),
             frame_in_use: Default::default(),
+            frames_in_flight: Arc::new((Mutex::new(0), Condvar::new())),
             keyframe_only,
             video_fmt: None,
             bit_depth_minus8: 0,
@@ -202,6 +204,11 @@ impl Decoder {
 
 impl Drop for Decoder {
     fn drop(&mut self) {
+        let (lock, cvar) = &*self.inner.frames_in_flight;
+        let mut count = lock.lock().unwrap();
+        while *count > 0 {
+            count = cvar.wait(count).unwrap();
+        }
         unsafe {
             if !self.inner.decoder.is_null() {
                 ffi::cuda::cuCtxPushCurrent_v2(self.inner.context.context);
@@ -647,6 +654,13 @@ impl<'a, 'b> FramesIter<'a, 'b> {
                 ffi::cuda::cuCtxPopCurrent_v2(std::ptr::null_mut());
                 return None;
             }
+            {
+                let (lock, cvar) = &*self.inner.frames_in_flight;
+                let mut count = lock.lock().unwrap();
+                *count = *count + 1;
+                // We notify the condvar that the value has changed.
+                cvar.notify_one();
+            }
 
             let mut decode_status: ffi::cuvid::CUVIDGETDECODESTATUS = std::mem::zeroed();
             if ffi::cuvid::cuvidGetDecodeStatus(self.inner.decoder, frame.index, &mut decode_status)
@@ -679,6 +693,7 @@ impl<'a, 'b> FramesIter<'a, 'b> {
             idx: frame.index,
             has_concealed_error,
             frame_in_use: Arc::clone(&self.inner.frame_in_use),
+            frames_in_flight: Arc::clone(&self.inner.frames_in_flight),
         };
 
         Some(frame)

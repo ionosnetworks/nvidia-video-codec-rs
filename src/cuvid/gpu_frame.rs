@@ -1,5 +1,5 @@
 use std::sync::atomic::AtomicU64;
-use std::sync::Arc;
+use std::sync::{Arc, Condvar, Mutex};
 
 use super::{ffi, CudaResult};
 
@@ -15,6 +15,7 @@ pub struct GpuFrame {
     pub(crate) frame_in_use: Arc<AtomicU64>,
     pub(crate) idx: i32,
     pub(crate) decoder: CUvideodecoder,
+    pub(crate) frames_in_flight: Arc<(Mutex<usize>, Condvar)>,
 }
 
 impl Drop for GpuFrame {
@@ -22,6 +23,14 @@ impl Drop for GpuFrame {
         unsafe {
             if !ffi::cuvid::cuvidUnmapVideoFrame64(self.decoder, self.ptr).ok() {
                 tracing::error!("Failed to unmap current frame.");
+            }
+
+            {
+                let (lock, cvar) = &*self.frames_in_flight;
+                let mut count = lock.lock().unwrap();
+                *count = *count - 1;
+                // We notify the condvar that the value has changed.
+                cvar.notify_one();
             }
 
             let v = !(1 << self.idx);
