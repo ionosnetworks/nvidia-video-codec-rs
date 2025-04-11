@@ -10,6 +10,8 @@ pub use super::chroma::VideoChromaFormat;
 pub use super::codec::Codec;
 pub use super::surface::VideoSurfaceFormat;
 
+pub const ADDITIONAL_DECODE_SURFACES: usize = 3;
+
 pub struct Decoder {
     inner: Box<Inner>,
 }
@@ -269,7 +271,17 @@ impl Inner {
             fmt.min_num_decode_surfaces,
         );
 
-        let min_surfaces = fmt.min_num_decode_surfaces;
+        /*
+           if you use exactly min_num_decode_surfaces, the moment the decoder
+           needs a new surface but all are either locked for display or
+           in flight, it stalls. By adding two or three extra surfaces,
+           you give the pipeline enough headroom to keep decoding while some
+           frames remain undisplayed or are still being transferred out for
+           rendering. Without that extra buffer, it’s easy to see stuttering or
+            stalls, since the GPU can’t proceed until one of the
+            “minimum” surfaces has been freed.
+        */
+        let min_surfaces = fmt.min_num_decode_surfaces + (ADDITIONAL_DECODE_SURFACES as u8);
 
         let mut decode_caps: ffi::cuvid::CUVIDDECODECAPS = unsafe { std::mem::zeroed() };
         decode_caps.eCodecType = fmt.codec;
@@ -418,8 +430,8 @@ impl Inner {
         video_decode_create_info.ulNumOutputSurfaces = self
             .requested_output_surfaces
             .map(|n| n as u64)
-            .unwrap_or(decode_surfaces)
-            .max(decode_surfaces);
+            .map(|n| if n == 0 { decode_surfaces } else { n })
+            .unwrap_or(3);
         video_decode_create_info.ulCreationFlags =
             ffi::cuvid::cudaVideoCreateFlags_enum_cudaVideoCreate_PreferCUVID as _;
         video_decode_create_info.ulNumDecodeSurfaces = decode_surfaces;

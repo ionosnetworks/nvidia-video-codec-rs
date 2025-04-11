@@ -9,7 +9,7 @@ mod surface;
 
 pub use self::chroma::VideoChromaFormat;
 pub use self::codec::Codec;
-pub use self::decoder::Decoder;
+pub use self::decoder::{Decoder, ADDITIONAL_DECODE_SURFACES};
 pub use self::encoder::Encoder;
 pub use self::gpu_frame::GpuFrame;
 pub use self::surface::VideoSurfaceFormat;

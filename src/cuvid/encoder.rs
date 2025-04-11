@@ -450,6 +450,11 @@ impl Encoder {
         Ok(Self { inner })
     }
 
+    /*
+     * if copy is false, then the encoder will hold the mapped frame to prevent
+     * it from being de-allocated. Ensure the decoder has an appropriate number
+     * of output surfaces to prevent stalling (maybe >= gop length?)
+     */
     pub fn queue_gpu_frame(
         &mut self,
         frame: GpuFrame,
