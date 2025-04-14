@@ -41,7 +41,9 @@ struct Inner {
     receiver: flume::Receiver<PreparedFrame>,
     requested_output_surfaces: Option<usize>,
     requested_decode_surfaces: Option<usize>,
+    current_output_surfaces: usize,
     frame_timeout: Option<Duration>,
+    name: Option<String>,
 }
 
 #[derive(Debug)]
@@ -116,6 +118,7 @@ impl Decoder {
             requested_decode_surfaces: decode_surfaces,
             sender: Some(sender),
             frame_timeout,
+            name: None,
         });
 
         let mut params: ffi::cuvid::CUVIDPARSERPARAMS = unsafe { std::mem::zeroed() };
@@ -137,6 +140,10 @@ impl Decoder {
         inner.parser = parser;
 
         Ok(Self { inner })
+    }
+
+    pub fn set_name<T: AsRef<str>>(&mut self, name: T) {
+        self.inner.name = Some(String::from(name.as_ref()));
     }
 
     pub fn queue(&self, data: &[u8], timestamp: i64) -> Result<(), ffi::cuda::CUresult> {
@@ -249,6 +256,7 @@ impl Inner {
         let fmt = unsafe { &*video_fmt };
 
         tracing::debug!(
+            name = self.name.as_deref().unwrap_or_default(),
             "Video Input Information
 
             Status: {},
@@ -302,6 +310,7 @@ impl Inner {
                 return min_surfaces as _;
             }
             if !ffi::cuvid::cuvidGetDecoderCaps(&mut decode_caps).ok() {
+                tracing::error!("Failed to get decode caps");
                 return min_surfaces as _;
             }
             if !ffi::cuda::cuCtxPopCurrent_v2(std::ptr::null_mut()).ok() {
@@ -334,7 +343,7 @@ impl Inner {
 
             return min_surfaces as _;
         }
-        let mut force_recreate = false;
+        let mut force_recreate = true;
         if !self.decoder.is_null() {
             if self.bit_depth_minus8 != fmt.bit_depth_luma_minus8 {
                 tracing::warn!("Reconfigure Not supported for bit depth change");
@@ -455,6 +464,7 @@ impl Inner {
             (video_fmt.display_area.bottom - video_fmt.display_area.top) as _;
         video_decode_create_info.ulIntraDecodeOnly = if self.keyframe_only { 1 } else { 0 };
 
+        self.current_output_surfaces = video_decode_create_info.ulNumOutputSurfaces as _;
         if self.requested_size.0 > 0 && self.requested_size.1 > 0 {
             video_decode_create_info.display_area.left = video_fmt.display_area.left as _;
             video_decode_create_info.display_area.top = video_fmt.display_area.top as _;
@@ -475,6 +485,13 @@ impl Inner {
                 return min_surfaces as _;
             }
             if force_recreate {
+                {
+                    let (lock, cvar) = &*self.frames_in_flight;
+                    let mut count = lock.lock().unwrap();
+                    while *count > 0 {
+                        count = cvar.wait(count).unwrap();
+                    }
+                }
                 ffi::cuvid::cuvidDestroyDecoder(self.decoder);
                 self.decoder = std::ptr::null_mut();
             }
@@ -483,6 +500,7 @@ impl Inner {
                 if !ffi::cuvid::cuvidCreateDecoder(&mut self.decoder, &mut video_decode_create_info)
                     .ok()
                 {
+                    tracing::error!("Failed to create decoder");
                     return min_surfaces as _;
                 }
             } else {
@@ -497,12 +515,30 @@ impl Inner {
                     video_decode_reconfigure_info.ulHeight = video_fmt.coded_height as _;
                     video_decode_reconfigure_info.ulTargetWidth = video_fmt.coded_width as _;
                     video_decode_reconfigure_info.ulTargetHeight = video_fmt.coded_height as _;
-                    if !ffi::cuvid::cuvidReconfigureDecoder(
+
+                    if self.requested_size.0 > 0 && self.requested_size.1 > 0 {
+                        video_decode_reconfigure_info.display_area.left =
+                            video_fmt.display_area.left as _;
+                        video_decode_reconfigure_info.display_area.top =
+                            video_fmt.display_area.top as _;
+                        video_decode_reconfigure_info.display_area.right =
+                            video_fmt.display_area.right as _;
+                        video_decode_reconfigure_info.display_area.bottom =
+                            video_fmt.display_area.bottom as _;
+
+                        video_decode_reconfigure_info.ulTargetWidth = self.out_size.0 as _;
+                        video_decode_reconfigure_info.ulTargetHeight = self.out_size.1 as _;
+                    }
+
+                    video_decode_reconfigure_info.ulNumDecodeSurfaces = decode_surfaces as _;
+
+                    if let Err(err) = ffi::cuvid::cuvidReconfigureDecoder(
                         self.decoder,
                         &mut video_decode_reconfigure_info,
                     )
-                    .ok()
+                    .err()
                     {
+                        tracing::error!("Failed to reconfigure decoder: {}", err);
                         return min_surfaces as _;
                     }
                 }
@@ -641,6 +677,15 @@ impl<'a, 'b> FramesIter<'a, 'b> {
             }
 
             // tracing::info!("{}: {}", context.is_some(), frame.index);
+            {
+                let (lock, cvar) = &*self.inner.frames_in_flight;
+                let mut count = lock.lock().unwrap();
+                while *count >= self.inner.current_output_surfaces {
+                    count = cvar.wait(count).unwrap();
+                }
+                *count = *count + 1;
+                cvar.notify_one();
+            }
             if let Err(err) = ffi::cuvid::cuvidMapVideoFrame64(
                 self.inner.decoder,
                 frame.index,
@@ -653,13 +698,6 @@ impl<'a, 'b> FramesIter<'a, 'b> {
                 tracing::error!("Failed to map video frame: {}", err);
                 ffi::cuda::cuCtxPopCurrent_v2(std::ptr::null_mut());
                 return None;
-            }
-            {
-                let (lock, cvar) = &*self.inner.frames_in_flight;
-                let mut count = lock.lock().unwrap();
-                *count = *count + 1;
-                // We notify the condvar that the value has changed.
-                cvar.notify_one();
             }
 
             let mut decode_status: ffi::cuvid::CUVIDGETDECODESTATUS = std::mem::zeroed();
