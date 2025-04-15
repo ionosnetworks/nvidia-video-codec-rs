@@ -119,6 +119,7 @@ impl Decoder {
             sender: Some(sender),
             frame_timeout,
             name: None,
+            current_output_surfaces: 0,
         });
 
         let mut params: ffi::cuvid::CUVIDPARSERPARAMS = unsafe { std::mem::zeroed() };
