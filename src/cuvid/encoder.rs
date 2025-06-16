@@ -337,7 +337,7 @@ impl Encoder {
                 .set_repeatSPSPPS(1)
         };
 
-        preset_config.presetCfg.gopLength = framerate.1 / framerate.0;
+        preset_config.presetCfg.gopLength = framerate.1.checked_div(framerate.0).unwrap_or(25);
         preset_config.presetCfg.frameIntervalP = 1;
         preset_config.presetCfg.frameFieldMode =
             ffi::cuvid::_NV_ENC_PARAMS_FRAME_FIELD_MODE_NV_ENC_PARAMS_FRAME_FIELD_MODE_FRAME;
