@@ -713,7 +713,7 @@ impl<'a, 'b> FramesIter<'a, 'b> {
                 } else if decode_status.decodeStatus
                     == ffi::cuvid::cuvidDecodeStatus_enum_cuvidDecodeStatus_Error_Concealed
                 {
-                    tracing::warn!(concealed = true, "Decoding error occured");
+                    tracing::trace!(concealed = true, "Decoding error occured");
                     has_concealed_error = Some(true);
                 }
             }
