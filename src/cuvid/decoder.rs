@@ -308,20 +308,20 @@ impl Inner {
 
         unsafe {
             if !ffi::cuda::cuCtxPushCurrent_v2(self.context.context).ok() {
-                return min_surfaces as _;
+                return 0;
             }
             if !ffi::cuvid::cuvidGetDecoderCaps(&mut decode_caps).ok() {
                 tracing::error!("Failed to get decode caps");
-                return min_surfaces as _;
+                return 0;
             }
             if !ffi::cuda::cuCtxPopCurrent_v2(std::ptr::null_mut()).ok() {
-                return min_surfaces as _;
+                return 0;
             }
         }
 
         if decode_caps.bIsSupported == 0 {
             tracing::error!("Codec not supported on this GPU");
-            return min_surfaces as _;
+            return 0;
         }
 
         if (fmt.coded_width > decode_caps.nMaxWidth) || (fmt.coded_height > decode_caps.nMaxHeight)
@@ -333,7 +333,7 @@ impl Inner {
                 decode_caps.nMaxWidth,
                 decode_caps.nMaxHeight
             );
-            return min_surfaces as _;
+            return 0;
         }
         if (fmt.coded_width >> 4) * (fmt.coded_height >> 4) > decode_caps.nMaxMBCount {
             tracing::error!(
@@ -342,7 +342,7 @@ impl Inner {
                 decode_caps.nMaxMBCount
             );
 
-            return min_surfaces as _;
+            return 0;
         }
         let mut force_recreate = true;
         if !self.decoder.is_null() {
@@ -483,7 +483,7 @@ impl Inner {
         }
         unsafe {
             if !ffi::cuda::cuCtxPushCurrent_v2(self.context.context).ok() {
-                return min_surfaces as _;
+                return 0;
             }
             if force_recreate {
                 {
@@ -502,7 +502,7 @@ impl Inner {
                     .ok()
                 {
                     tracing::error!("Failed to create decoder");
-                    return min_surfaces as _;
+                    return 0;
                 }
             } else {
                 if !res_change {
@@ -540,13 +540,13 @@ impl Inner {
                     .err()
                     {
                         tracing::error!("Failed to reconfigure decoder: {}", err);
-                        return min_surfaces as _;
+                        return 0;
                     }
                 }
             }
 
             if !ffi::cuda::cuCtxPopCurrent_v2(std::ptr::null_mut()).ok() {
-                return min_surfaces as _;
+                return 0;
             }
         }
 
