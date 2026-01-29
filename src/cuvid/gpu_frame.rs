@@ -19,6 +19,7 @@ pub struct GpuFrame {
     pub(crate) decoder: CUvideodecoder,
     pub(crate) context: CUcontext,
     pub(crate) frames_in_flight: Arc<(Mutex<usize>, Condvar)>,
+    pub(crate) decode_surfaces_in_flight: Arc<(Mutex<usize>, Condvar)>,
 }
 
 impl GpuFrame {
@@ -55,9 +56,18 @@ impl Drop for GpuFrame {
                 cvar.notify_one();
             }
 
-            let v = !(1 << self.idx);
-            self.frame_in_use
-                .fetch_and(v, std::sync::atomic::Ordering::SeqCst);
+            let mask = 1u64 << (self.idx as usize);
+            let prev = self
+                .frame_in_use
+                .fetch_and(!mask, std::sync::atomic::Ordering::SeqCst);
+            if (prev & mask) != 0 {
+                let (lock, cvar) = &*self.decode_surfaces_in_flight;
+                let mut count = lock.lock().unwrap();
+                if *count > 0 {
+                    *count -= 1;
+                }
+                cvar.notify_one();
+            }
         }
     }
 }

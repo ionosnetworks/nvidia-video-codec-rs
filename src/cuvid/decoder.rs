@@ -28,6 +28,7 @@ struct Inner {
     requested_size: (u32, u32),
     frame_in_use: Arc<AtomicU64>,
     frames_in_flight: Arc<(Mutex<usize>, Condvar)>,
+    decode_surfaces_in_flight: Arc<(Mutex<usize>, Condvar)>,
 
     video_fmt: Option<ffi::cuvid::CUVIDEOFORMAT>,
     codec: Codec,
@@ -42,6 +43,7 @@ struct Inner {
     requested_output_surfaces: Option<usize>,
     requested_decode_surfaces: Option<usize>,
     current_output_surfaces: usize,
+    current_decode_surfaces: usize,
     frame_timeout: Option<Duration>,
     name: Option<String>,
 }
@@ -105,6 +107,7 @@ impl Decoder {
             decoder: std::ptr::null_mut(),
             frame_in_use: Default::default(),
             frames_in_flight: Arc::new((Mutex::new(0), Condvar::new())),
+            decode_surfaces_in_flight: Arc::new((Mutex::new(0), Condvar::new())),
             keyframe_only,
             video_fmt: None,
             bit_depth_minus8: 0,
@@ -120,6 +123,7 @@ impl Decoder {
             frame_timeout,
             name: None,
             current_output_surfaces: 0,
+            current_decode_surfaces: 0,
         });
 
         let mut params: ffi::cuvid::CUVIDPARSERPARAMS = unsafe { std::mem::zeroed() };
@@ -148,6 +152,14 @@ impl Decoder {
     }
 
     pub fn queue(&self, data: &[u8], timestamp: i64) -> Result<(), ffi::cuda::CUresult> {
+        if self.inner.current_decode_surfaces > 0 {
+            let (lock, cvar) = &*self.inner.decode_surfaces_in_flight;
+            let mut in_flight = lock.lock().unwrap();
+            while *in_flight >= self.inner.current_decode_surfaces {
+                in_flight = cvar.wait(in_flight).unwrap();
+            }
+        }
+
         let mut packet = ffi::cuvid::CUVIDSOURCEDATAPACKET {
             flags: ffi::cuvid::CUvideopacketflags_CUVID_PKT_TIMESTAMP as _,
             payload_size: data.len() as u64,
@@ -236,20 +248,17 @@ impl Drop for Decoder {
 }
 
 impl Inner {
-    fn is_frame_in_use(&self, idx: usize) -> bool {
-        let f = self.frame_in_use.load(std::sync::atomic::Ordering::SeqCst);
-        f & (1 << idx) != 0
-    }
-
-    fn set_frame_status(&self, idx: usize, status: bool) {
-        if status {
-            let v = 1 << idx;
-            self.frame_in_use
-                .fetch_or(v, std::sync::atomic::Ordering::SeqCst);
-        } else {
-            let v = !(1 << idx);
-            self.frame_in_use
-                .fetch_and(v, std::sync::atomic::Ordering::SeqCst);
+    fn release_decode_surface(&self, mask: u64) {
+        let prev = self
+            .frame_in_use
+            .fetch_and(!mask, std::sync::atomic::Ordering::SeqCst);
+        if (prev & mask) != 0 {
+            let (lock, cvar) = &*self.decode_surfaces_in_flight;
+            let mut count = lock.lock().unwrap();
+            if *count > 0 {
+                *count -= 1;
+            }
+            cvar.notify_one();
         }
     }
 
@@ -433,6 +442,7 @@ impl Inner {
         let video_fmt = self.video_fmt.as_ref().unwrap();
         let decode_surfaces =
             (min_surfaces as u64).max(self.requested_decode_surfaces.unwrap_or(1) as u64);
+        self.current_decode_surfaces = decode_surfaces as usize;
 
         let mut video_decode_create_info: ffi::cuvid::CUVIDDECODECREATEINFO =
             unsafe { std::mem::zeroed() };
@@ -565,42 +575,46 @@ impl Inner {
         if pic_idx >= 64 {
             panic!("didn't expect pic_idx to be more than 64")
         }
-        let start = std::time::Instant::now();
-        let mut warned = false;
-        while self.is_frame_in_use(pic_idx) {
-            if start.elapsed() > std::time::Duration::from_secs(5) && !warned {
-                tracing::warn!(
-                    idx = pic_idx,
-                    "Waited way too long for frame to become free."
-                );
-                warned = true;
-            }
-            std::thread::sleep(std::time::Duration::from_micros(500));
-        }
-        if start.elapsed() > std::time::Duration::from_secs(5) {
+        let mask = 1u64 << pic_idx;
+        let prev = self
+            .frame_in_use
+            .fetch_or(mask, std::sync::atomic::Ordering::SeqCst);
+        let already_in_use = (prev & mask) != 0;
+        if already_in_use {
             tracing::warn!(
                 idx = pic_idx,
-                "Waited {}ms for frame to become free.",
-                start.elapsed().as_millis()
+                "Decoder surface reused while still in use; backpressure may be insufficient."
             );
+        } else {
+            let (lock, _) = &*self.decode_surfaces_in_flight;
+            let mut count = lock.lock().unwrap();
+            *count += 1;
         }
-        if self.decoder.is_null() {
-            tracing::debug!("decoder was dropped while waiting for frame in use.");
-            return 0;
-        }
-        self.set_frame_status(pic_idx, true);
 
+        let mut decode_ok = false;
         unsafe {
             if !ffi::cuda::cuCtxPushCurrent_v2(self.context.context).ok() {
+                if !already_in_use {
+                    self.release_decode_surface(mask);
+                }
                 return 0;
             }
-            if !ffi::cuvid::cuvidDecodePicture(self.decoder, pic_params).ok() {
-                return 0;
-            }
-            // low latency option
+
+            decode_ok = ffi::cuvid::cuvidDecodePicture(self.decoder, pic_params).ok();
             if !ffi::cuda::cuCtxPopCurrent_v2(std::ptr::null_mut()).ok() {
+                tracing::error!("Failed to pop current context.");
+                if !decode_ok && !already_in_use {
+                    self.release_decode_surface(mask);
+                }
                 return 0;
             }
+        }
+
+        if !decode_ok {
+            if !already_in_use {
+                self.release_decode_surface(mask);
+            }
+            return 0;
         }
 
         1
@@ -733,6 +747,7 @@ impl<'a, 'b> FramesIter<'a, 'b> {
             has_concealed_error,
             frame_in_use: Arc::clone(&self.inner.frame_in_use),
             frames_in_flight: Arc::clone(&self.inner.frames_in_flight),
+            decode_surfaces_in_flight: Arc::clone(&self.inner.decode_surfaces_in_flight),
             context,
         };
 
