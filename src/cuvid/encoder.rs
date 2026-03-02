@@ -67,7 +67,7 @@ pub const NV_ENC_MAP_INPUT_RESOURCE_VER: u32 = NVENCAPI_STRUCT_VERSION(4);
 // pub const NV_ENC_OUTPUT_RESOURCE_D3D12_VER: u32 = NVENCAPI_STRUCT_VERSION(1);
 pub const NV_ENC_REGISTER_RESOURCE_VER: u32 = NVENCAPI_STRUCT_VERSION(4);
 // pub const NV_ENC_STAT_VER: u32 = NVENCAPI_STRUCT_VERSION(1);
-// pub const NV_ENC_SEQUENCE_PARAM_PAYLOAD_VER: u32 = NVENCAPI_STRUCT_VERSION(1);
+pub const NV_ENC_SEQUENCE_PARAM_PAYLOAD_VER: u32 = NVENCAPI_STRUCT_VERSION(1);
 // pub const NV_ENC_EVENT_PARAMS_VER: u32 = NVENCAPI_STRUCT_VERSION(1);
 pub const NV_ENC_OPEN_ENCODE_SESSION_EX_PARAMS_VER: u32 = NVENCAPI_STRUCT_VERSION(1);
 pub const NV_ENCODE_API_FUNCTION_LIST_VER: u32 = NVENCAPI_STRUCT_VERSION(2);
@@ -328,9 +328,11 @@ impl Encoder {
 
         let selected_preset = if low_latency {
             preset_config.presetCfg.rcParams.rateControlMode =
-                ffi::cuvid::_NV_ENC_MULTI_PASS_NV_ENC_TWO_PASS_QUARTER_RESOLUTION;
+                ffi::cuvid::_NV_ENC_MULTI_PASS_NV_ENC_TWO_PASS_FULL_RESOLUTION;
             preset_config.presetCfg.gopLength = 1;
-            NV_ENC_PRESET_P1_GUID
+            preset_config.presetCfg.rcParams.set_zeroReorderDelay(1);
+
+            NV_ENC_PRESET_P7_GUID
         } else {
             preset_config.presetCfg.rcParams.rateControlMode =
                 ffi::cuvid::_NV_ENC_MULTI_PASS_NV_ENC_TWO_PASS_FULL_RESOLUTION;
@@ -442,7 +444,9 @@ impl Encoder {
         params.frameRateNum = framerate.0;
         params.frameRateDen = framerate.1;
         params.enablePTD = 1;
-
+        if low_latency {
+            params.enableEncodeAsync = 0;
+        }
         unsafe {
             let res = NVENC_LIB.nvEncInitializeEncoder.unwrap()(encoder.as_ptr(), &mut params);
             wrap!(res, res)?;
@@ -526,6 +530,7 @@ impl Encoder {
 
         if self.inner.ll {
             pic_params.encodePicFlags = ffi::cuvid::_NV_ENC_PIC_FLAGS_NV_ENC_PIC_FLAG_OUTPUT_SPSPPS
+                | ffi::cuvid::_NV_ENC_PIC_FLAGS_NV_ENC_PIC_FLAG_FORCEIDR;
         }
 
         let resource = MappedInputResource::new(
@@ -570,6 +575,25 @@ impl Encoder {
             }
             Err(err) => Err(err),
         }
+    }
+
+    pub fn spspps(&self) -> Result<Vec<u8>, ffi::cuda::CUresult> {
+        let mut params: ffi::cuvid::NV_ENC_SEQUENCE_PARAM_PAYLOAD = unsafe { std::mem::zeroed() };
+        params.version = NV_ENC_SEQUENCE_PARAM_PAYLOAD_VER;
+
+        let mut spspps = [0u8; 256];
+        let mut spspps_size: u32 = 0;
+
+        params.spsppsBuffer = spspps.as_mut_ptr() as *mut std::ffi::c_void;
+        params.inBufferSize = spspps.len() as u32;
+        params.outSPSPPSPayloadSize = &mut spspps_size;
+
+        unsafe {
+            let res =
+                NVENC_LIB.nvEncGetSequenceParams.unwrap()(self.inner.encoder.as_ptr(), &mut params);
+            wrap!(res, res)?
+        };
+        Ok(Vec::from(&spspps[..spspps_size as usize]))
     }
 
     pub fn send_eos(&mut self) -> Result<(), ffi::cuda::CUresult> {

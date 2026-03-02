@@ -164,7 +164,6 @@ impl Decoder {
 
         let mut flags = ffi::cuvid::CUvideopacketflags_CUVID_PKT_TIMESTAMP;
         if self.inner.ll {
-            flags |= ffi::cuvid::CUvideopacketflags_CUVID_PKT_DISCONTINUITY;
             flags |= ffi::cuvid::CUvideopacketflags_CUVID_PKT_ENDOFPICTURE;
         }
 
