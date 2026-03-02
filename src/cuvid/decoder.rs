@@ -591,7 +591,7 @@ impl Inner {
             *count += 1;
         }
 
-        let mut decode_ok = false;
+        let decode_ok;
         unsafe {
             if !ffi::cuda::cuCtxPushCurrent_v2(self.context.context).ok() {
                 if !already_in_use {

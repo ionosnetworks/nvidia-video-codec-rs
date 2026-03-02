@@ -94,6 +94,13 @@ pub const NV_ENC_PRESET_LOSSLESS_DEFAULT_GUID: ffi::cuvid::GUID = ffi::cuvid::GU
     Data4: [0x9b, 0xb8, 0xde, 0xa5, 0x51, 0xf, 0xc3, 0xac],
 };
 
+pub const NV_ENC_PRESET_P1_GUID: ffi::cuvid::GUID = ffi::cuvid::GUID {
+    Data1: 0xfc0a8d3e,
+    Data2: 0x45f8,
+    Data3: 0x4cf8,
+    Data4: [0x80, 0xc7, 0x29, 0x88, 0x71, 0x59, 0x0e, 0xbf],
+};
+
 pub const NV_ENC_PRESET_P7_GUID: ffi::cuvid::GUID = ffi::cuvid::GUID {
     Data1: 0x84848c12,
     Data2: 0x6f71,
@@ -146,6 +153,7 @@ impl Encoder {
         output_size: (u32, u32),
         framerate: (u32, u32),
         surfaces: NonZeroUsize,
+        low_latency: bool,
     ) -> Result<Self, ffi::cuda::CUresult> {
         let context = match context {
             Some(context) => super::super::cuda::context::CuContextRef::Borrowed(context),
@@ -235,8 +243,6 @@ impl Encoder {
             presets
         };
 
-        let selected_preset = NV_ENC_PRESET_P7_GUID;
-
         let profiles = unsafe {
             let profile_count = {
                 let mut profile_count = 0u32;
@@ -318,6 +324,20 @@ impl Encoder {
         let mut preset_config: ffi::cuvid::NV_ENC_PRESET_CONFIG = unsafe { std::mem::zeroed() };
         preset_config.version = NV_ENC_PRESET_CONFIG_VER;
         preset_config.presetCfg.version = NV_ENC_CONFIG_VER;
+
+        let selected_preset = if low_latency {
+            preset_config.presetCfg.rcParams.rateControlMode =
+                ffi::cuvid::_NV_ENC_MULTI_PASS_NV_ENC_TWO_PASS_QUARTER_RESOLUTION;
+            preset_config.presetCfg.gopLength = 1;
+            NV_ENC_PRESET_P1_GUID
+        } else {
+            preset_config.presetCfg.rcParams.rateControlMode =
+                ffi::cuvid::_NV_ENC_MULTI_PASS_NV_ENC_TWO_PASS_FULL_RESOLUTION;
+
+            preset_config.presetCfg.gopLength = framerate.1.checked_div(framerate.0).unwrap_or(25);
+            NV_ENC_PRESET_P7_GUID
+        };
+
         unsafe {
             let res = NVENC_LIB.nvEncGetEncodePresetConfigEx.unwrap()(
                 encoder.as_ptr(),
@@ -337,7 +357,6 @@ impl Encoder {
                 .set_repeatSPSPPS(1)
         };
 
-        preset_config.presetCfg.gopLength = framerate.1.checked_div(framerate.0).unwrap_or(25);
         preset_config.presetCfg.frameIntervalP = 1;
         preset_config.presetCfg.frameFieldMode =
             ffi::cuvid::_NV_ENC_PARAMS_FRAME_FIELD_MODE_NV_ENC_PARAMS_FRAME_FIELD_MODE_FRAME;
@@ -365,8 +384,6 @@ impl Encoder {
             .idrPeriod = 0;
         preset_config.presetCfg.encodeCodecConfig.h264Config.spsId = 1;
         preset_config.presetCfg.encodeCodecConfig.h264Config.ppsId = 1;
-        preset_config.presetCfg.rcParams.rateControlMode =
-            ffi::cuvid::_NV_ENC_MULTI_PASS_NV_ENC_TWO_PASS_FULL_RESOLUTION;
         preset_config.presetCfg.rcParams.set_enableLookahead(0);
         //preset_config.presetCfg.profileGUID = selected_profile;
 
