@@ -138,6 +138,7 @@ struct Inner {
     pool: ResourcePool,
     bitstream: Arc<Vec<BitStream>>,
     receiver: flume::Receiver<MappedInputResource>,
+    ll: bool,
 
     input: Vec<Option<Arc<CudaPtr>>>,
     pending: Vec<MappedInputResource>,
@@ -462,6 +463,7 @@ impl Encoder {
             encoder,
             sender: Some(sender),
             receiver,
+            ll: low_latency,
         });
 
         Ok(Self { inner })
@@ -521,6 +523,10 @@ impl Encoder {
         pic_params.encodePicFlags = 0;
         pic_params.frameIdx = 0;
         pic_params.inputDuration = duration;
+
+        if self.inner.ll {
+            pic_params.encodePicFlags = ffi::cuvid::_NV_ENC_PIC_FLAGS_NV_ENC_PIC_FLAG_OUTPUT_SPSPPS
+        }
 
         let resource = MappedInputResource::new(
             &self.inner.encoder,

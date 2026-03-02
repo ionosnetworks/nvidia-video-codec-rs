@@ -29,6 +29,7 @@ struct Inner {
     frame_in_use: Arc<AtomicU64>,
     frames_in_flight: Arc<(Mutex<usize>, Condvar)>,
     decode_surfaces_in_flight: Arc<(Mutex<usize>, Condvar)>,
+    ll: bool,
 
     video_fmt: Option<ffi::cuvid::CUVIDEOFORMAT>,
     codec: Codec,
@@ -124,6 +125,7 @@ impl Decoder {
             name: None,
             current_output_surfaces: 0,
             current_decode_surfaces: 0,
+            ll: low_latency,
         });
 
         let mut params: ffi::cuvid::CUVIDPARSERPARAMS = unsafe { std::mem::zeroed() };
@@ -160,8 +162,14 @@ impl Decoder {
             }
         }
 
+        let mut flags = ffi::cuvid::CUvideopacketflags_CUVID_PKT_TIMESTAMP;
+        if self.inner.ll {
+            flags |= ffi::cuvid::CUvideopacketflags_CUVID_PKT_DISCONTINUITY;
+            flags |= ffi::cuvid::CUvideopacketflags_CUVID_PKT_ENDOFPICTURE;
+        }
+
         let mut packet = ffi::cuvid::CUVIDSOURCEDATAPACKET {
-            flags: ffi::cuvid::CUvideopacketflags_CUVID_PKT_TIMESTAMP as _,
+            flags: flags as _,
             payload_size: data.len() as u64,
             payload: data.as_ptr(),
             timestamp: timestamp,
