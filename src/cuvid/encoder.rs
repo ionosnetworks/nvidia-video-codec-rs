@@ -326,6 +326,17 @@ impl Encoder {
         preset_config.version = NV_ENC_PRESET_CONFIG_VER;
         preset_config.presetCfg.version = NV_ENC_CONFIG_VER;
 
+        unsafe {
+            let res = NVENC_LIB.nvEncGetEncodePresetConfigEx.unwrap()(
+                encoder.as_ptr(),
+                selected_codec,
+                NV_ENC_PRESET_P7_GUID,
+                ffi::cuvid::NV_ENC_TUNING_INFO_NV_ENC_TUNING_INFO_HIGH_QUALITY,
+                &mut preset_config,
+            );
+            wrap!(res, res)?;
+        }
+
         preset_config
             .presetCfg
             .encodeCodecConfig
@@ -337,7 +348,7 @@ impl Encoder {
             .h264Config
             .idrPeriod = 0;
 
-        let selected_preset = if low_latency {
+        if low_latency {
             preset_config.presetCfg.rcParams.multiPass =
                 ffi::cuvid::_NV_ENC_MULTI_PASS_NV_ENC_TWO_PASS_FULL_RESOLUTION;
             preset_config.presetCfg.gopLength = 1;
@@ -350,33 +361,12 @@ impl Encoder {
                 .encodeCodecConfig
                 .h264Config
                 .idrPeriod = 1;
-            preset_config
-                .presetCfg
-                .encodeCodecConfig
-                .h264Config
-                .chromaFormatIDC = 3;
             preset_config.presetCfg.encodeCodecConfig.h264Config.level =
                 ffi::cuvid::_NV_ENC_LEVEL_NV_ENC_LEVEL_H264_51;
-
-            NV_ENC_PRESET_P7_GUID
         } else {
             preset_config.presetCfg.rcParams.multiPass =
                 ffi::cuvid::_NV_ENC_MULTI_PASS_NV_ENC_TWO_PASS_FULL_RESOLUTION;
-
-            preset_config.presetCfg.gopLength = framerate.1.checked_div(framerate.0).unwrap_or(25);
-            NV_ENC_PRESET_P7_GUID
         };
-
-        unsafe {
-            let res = NVENC_LIB.nvEncGetEncodePresetConfigEx.unwrap()(
-                encoder.as_ptr(),
-                selected_codec,
-                selected_preset,
-                ffi::cuvid::NV_ENC_TUNING_INFO_NV_ENC_TUNING_INFO_HIGH_QUALITY,
-                &mut preset_config,
-            );
-            wrap!(res, res)?;
-        }
 
         unsafe {
             preset_config
@@ -386,7 +376,7 @@ impl Encoder {
                 .set_repeatSPSPPS(1)
         };
 
-        preset_config.presetCfg.frameIntervalP = 1;
+        preset_config.presetCfg.frameIntervalP = 0;
         preset_config.presetCfg.frameFieldMode =
             ffi::cuvid::_NV_ENC_PARAMS_FRAME_FIELD_MODE_NV_ENC_PARAMS_FRAME_FIELD_MODE_FRAME;
         unsafe {
@@ -412,11 +402,6 @@ impl Encoder {
                 preset_config.presetCfg.rcParams.rateControlMode =
                     ffi::cuvid::_NV_ENC_PARAMS_RC_MODE_NV_ENC_PARAMS_RC_CONSTQP;
                 preset_config.presetCfg.rcParams.constQP.qpIntra = qp;
-                preset_config
-                    .presetCfg
-                    .encodeCodecConfig
-                    .h264Config
-                    .chromaFormatIDC = 1;
             }
             super::Bitrate::CBR(bitrate) => {
                 preset_config.presetCfg.rcParams.rateControlMode =
@@ -430,8 +415,9 @@ impl Encoder {
                     preset_config.presetCfg.rcParams.averageBitRate = bitrate;
                     preset_config.presetCfg.rcParams.vbvBufferSize = bitrate; // bits
                     preset_config.presetCfg.rcParams.vbvInitialDelay = bitrate;
+                } else {
+                    preset_config.presetCfg.rcParams.maxBitRate = bitrate;
                 }
-                preset_config.presetCfg.rcParams.maxBitRate = bitrate;
             }
         }
 
@@ -462,9 +448,10 @@ impl Encoder {
         let mut params: ffi::cuvid::NV_ENC_INITIALIZE_PARAMS = unsafe { std::mem::zeroed() };
         params.version = NV_ENC_INITIALIZE_PARAMS_VER;
         params.encodeGUID = selected_codec;
-        // params.presetGUID = selected_preset;
+        params.presetGUID = NV_ENC_PRESET_P7_GUID;
         params.encodeWidth = output_size.0;
         params.encodeHeight = output_size.1;
+        params.tuningInfo = ffi::cuvid::NV_ENC_TUNING_INFO_NV_ENC_TUNING_INFO_HIGH_QUALITY;
         //params.darWidth = output_size.0;
         //params.darHeight = output_size.1;
         params.encodeConfig = &mut preset_config.presetCfg;
