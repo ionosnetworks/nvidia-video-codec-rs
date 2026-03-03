@@ -16,7 +16,7 @@ pub use self::surface::VideoSurfaceFormat;
 
 #[derive(Copy, Clone, Debug)]
 pub enum Bitrate {
-    CQP,
+    CQP(u32),
     CBR(u32),
     VBR(u32),
 }

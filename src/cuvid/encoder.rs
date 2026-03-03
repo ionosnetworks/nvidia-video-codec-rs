@@ -326,15 +326,41 @@ impl Encoder {
         preset_config.version = NV_ENC_PRESET_CONFIG_VER;
         preset_config.presetCfg.version = NV_ENC_CONFIG_VER;
 
+        preset_config
+            .presetCfg
+            .encodeCodecConfig
+            .h264Config
+            .useBFramesAsRef = 0;
+        preset_config
+            .presetCfg
+            .encodeCodecConfig
+            .h264Config
+            .idrPeriod = 0;
+
         let selected_preset = if low_latency {
-            preset_config.presetCfg.rcParams.rateControlMode =
+            preset_config.presetCfg.rcParams.multiPass =
                 ffi::cuvid::_NV_ENC_MULTI_PASS_NV_ENC_TWO_PASS_FULL_RESOLUTION;
             preset_config.presetCfg.gopLength = 1;
             preset_config.presetCfg.rcParams.set_zeroReorderDelay(1);
+            preset_config.presetCfg.rcParams.set_enableAQ(1);
+            preset_config.presetCfg.rcParams.set_aqStrength(15);
+
+            preset_config
+                .presetCfg
+                .encodeCodecConfig
+                .h264Config
+                .idrPeriod = 1;
+            preset_config
+                .presetCfg
+                .encodeCodecConfig
+                .h264Config
+                .chromaFormatIDC = 3;
+            preset_config.presetCfg.encodeCodecConfig.h264Config.level =
+                ffi::cuvid::_NV_ENC_LEVEL_NV_ENC_LEVEL_H264_51;
 
             NV_ENC_PRESET_P7_GUID
         } else {
-            preset_config.presetCfg.rcParams.rateControlMode =
+            preset_config.presetCfg.rcParams.multiPass =
                 ffi::cuvid::_NV_ENC_MULTI_PASS_NV_ENC_TWO_PASS_FULL_RESOLUTION;
 
             preset_config.presetCfg.gopLength = framerate.1.checked_div(framerate.0).unwrap_or(25);
@@ -346,7 +372,7 @@ impl Encoder {
                 encoder.as_ptr(),
                 selected_codec,
                 selected_preset,
-                ffi::cuvid::NV_ENC_TUNING_INFO_NV_ENC_TUNING_INFO_LOSSLESS,
+                ffi::cuvid::NV_ENC_TUNING_INFO_NV_ENC_TUNING_INFO_HIGH_QUALITY,
                 &mut preset_config,
             );
             wrap!(res, res)?;
@@ -375,25 +401,22 @@ impl Encoder {
                 .h264Config
                 .set_hierarchicalBFrames(0);
         }
-        preset_config
-            .presetCfg
-            .encodeCodecConfig
-            .h264Config
-            .useBFramesAsRef = 0;
-        preset_config
-            .presetCfg
-            .encodeCodecConfig
-            .h264Config
-            .idrPeriod = 0;
+
         preset_config.presetCfg.encodeCodecConfig.h264Config.spsId = 1;
         preset_config.presetCfg.encodeCodecConfig.h264Config.ppsId = 1;
         preset_config.presetCfg.rcParams.set_enableLookahead(0);
         //preset_config.presetCfg.profileGUID = selected_profile;
 
         match bitrate {
-            super::Bitrate::CQP => {
+            super::Bitrate::CQP(qp) => {
                 preset_config.presetCfg.rcParams.rateControlMode =
                     ffi::cuvid::_NV_ENC_PARAMS_RC_MODE_NV_ENC_PARAMS_RC_CONSTQP;
+                preset_config.presetCfg.rcParams.constQP.qpIntra = qp;
+                preset_config
+                    .presetCfg
+                    .encodeCodecConfig
+                    .h264Config
+                    .chromaFormatIDC = 1;
             }
             super::Bitrate::CBR(bitrate) => {
                 preset_config.presetCfg.rcParams.rateControlMode =
@@ -403,6 +426,11 @@ impl Encoder {
             super::Bitrate::VBR(bitrate) => {
                 preset_config.presetCfg.rcParams.rateControlMode =
                     ffi::cuvid::_NV_ENC_PARAMS_RC_MODE_NV_ENC_PARAMS_RC_VBR;
+                if low_latency {
+                    preset_config.presetCfg.rcParams.averageBitRate = bitrate;
+                    preset_config.presetCfg.rcParams.vbvBufferSize = bitrate; // bits
+                    preset_config.presetCfg.rcParams.vbvInitialDelay = bitrate;
+                }
                 preset_config.presetCfg.rcParams.maxBitRate = bitrate;
             }
         }
@@ -449,6 +477,11 @@ impl Encoder {
         }
         unsafe {
             let res = NVENC_LIB.nvEncInitializeEncoder.unwrap()(encoder.as_ptr(), &mut params);
+            if res != ffi::cuda::cudaError_enum_CUDA_SUCCESS {
+                let err = NVENC_LIB.nvEncGetLastErrorString.unwrap()(encoder.as_ptr());
+                let errstr = std::ffi::CStr::from_ptr(err);
+                tracing::error!("Failed to initalize encoder: {}", errstr.to_string_lossy());
+            }
             wrap!(res, res)?;
         }
         let (sender, receiver) = flume::bounded(surfaces.get());
