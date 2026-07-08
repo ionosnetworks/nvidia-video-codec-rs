@@ -475,7 +475,8 @@ impl Inner {
             .requested_output_surfaces
             .map(|n| n as u64)
             .map(|n| if n == 0 { decode_surfaces } else { n })
-            .unwrap_or(3);
+            .unwrap_or(3)
+            .max(decode_surfaces);
         video_decode_create_info.ulCreationFlags =
             ffi::cuvid::cudaVideoCreateFlags_enum_cudaVideoCreate_PreferCUVID as _;
         video_decode_create_info.ulNumDecodeSurfaces = decode_surfaces;
