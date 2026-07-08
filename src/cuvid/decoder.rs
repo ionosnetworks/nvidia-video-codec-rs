@@ -158,7 +158,14 @@ impl Decoder {
             let (lock, cvar) = &*self.inner.decode_surfaces_in_flight;
             let mut in_flight = lock.lock().unwrap();
             while *in_flight >= self.inner.current_decode_surfaces {
-                in_flight = cvar.wait(in_flight).unwrap();
+                let timed_out;
+                (in_flight, timed_out) = cvar
+                    .wait_timeout(in_flight, Duration::from_millis(50))
+                    .unwrap();
+                if timed_out.timed_out() {
+                    tracing::warn!(timeout = "50ms", "timedout waiting for decode surface");
+                    break;
+                }
             }
         }
 
