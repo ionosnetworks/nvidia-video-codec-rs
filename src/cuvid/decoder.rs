@@ -47,6 +47,7 @@ struct Inner {
     current_decode_surfaces: usize,
     frame_timeout: Option<Duration>,
     name: Option<String>,
+    surface_timeout: Option<Duration>,
 }
 
 #[derive(Debug)]
@@ -126,6 +127,7 @@ impl Decoder {
             current_output_surfaces: 0,
             current_decode_surfaces: 0,
             ll: low_latency,
+            surface_timeout: None,
         });
 
         let mut params: ffi::cuvid::CUVIDPARSERPARAMS = unsafe { std::mem::zeroed() };
@@ -153,18 +155,27 @@ impl Decoder {
         self.inner.name = Some(String::from(name.as_ref()));
     }
 
+    pub fn set_surface_timeout(&mut self, timeout: Duration) {
+        self.inner.surface_timeout = Some(timeout);
+    }
+
     pub fn queue(&self, data: &[u8], timestamp: i64) -> Result<(), ffi::cuda::CUresult> {
         if self.inner.current_decode_surfaces > 0 {
             let (lock, cvar) = &*self.inner.decode_surfaces_in_flight;
             let mut in_flight = lock.lock().unwrap();
             while *in_flight >= self.inner.current_decode_surfaces {
-                let timed_out;
-                (in_flight, timed_out) = cvar
-                    .wait_timeout(in_flight, Duration::from_millis(50))
-                    .unwrap();
-                if timed_out.timed_out() {
-                    tracing::warn!(timeout = "50ms", "timedout waiting for decode surface");
-                    break;
+                match self.inner.surface_timeout {
+                    Some(timeout) => {
+                        let timed_out;
+                        (in_flight, timed_out) = cvar.wait_timeout(in_flight, timeout).unwrap();
+                        if timed_out.timed_out() {
+                            tracing::warn!(timeout = "50ms", "timedout waiting for decode surface");
+                            break;
+                        }
+                    }
+                    None => {
+                        in_flight = cvar.wait(in_flight).unwrap();
+                    }
                 }
             }
         }
@@ -728,6 +739,13 @@ impl<'a, 'b> FramesIter<'a, 'b> {
             {
                 tracing::error!("Failed to map video frame: {}", err);
                 ffi::cuda::cuCtxPopCurrent_v2(std::ptr::null_mut());
+
+                {
+                    let (lock, cvar) = &*self.inner.frames_in_flight;
+                    let mut count = lock.lock().unwrap();
+                    *count = *count - 1;
+                    cvar.notify_one();
+                }
                 return None;
             }
 
