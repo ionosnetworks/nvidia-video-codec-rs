@@ -37,9 +37,10 @@ impl CuDevice {
     }
 
     pub fn get_total_mem(&self) -> Result<u64, CUresult> {
-        let mut val = 0;
-        let res = unsafe { cuDeviceTotalMem_v2(&mut val as *mut u64, self.device) };
+        let mut val = 0usize;
+        let res = unsafe { cuDeviceTotalMem_v2(&mut val as *mut usize, self.device) };
 
+        let val = val as u64;
         wrap!(val, res)
     }
 }

@@ -12,7 +12,7 @@ pub fn malloc_pitch_ctx(
     height: u64,
     element_size_bytes: u32,
 ) -> Result<CudaPtr, CUresult> {
-    let mut pitch: std::ffi::c_ulong = 0;
+    let mut pitch: usize = 0;
     let mut ptr: ffi::cuda::CUdeviceptr = 0;
     unsafe {
         ffi::cuda::cuCtxPushCurrent_v2(context);
@@ -21,8 +21,8 @@ pub fn malloc_pitch_ctx(
         ffi::cuda::cuMemAllocPitch_v2(
             &mut ptr,
             &mut pitch,
-            width_in_bytes,
-            height,
+            width_in_bytes as _,
+            height as _,
             element_size_bytes,
         )
     };
@@ -32,7 +32,7 @@ pub fn malloc_pitch_ctx(
     let val = CudaPtr {
         context: Some(context),
         inner: ptr,
-        pitch,
+        pitch: pitch as _,
     };
     wrap!(val, res)
 }
@@ -56,14 +56,14 @@ impl CudaPtr {
         let mut m: ffi::cuda::CUDA_MEMCPY2D_v2 = unsafe { std::mem::zeroed() };
         m.srcMemoryType = ffi::cuda::CUmemorytype_enum_CU_MEMORYTYPE_DEVICE;
         m.srcDevice = other;
-        m.srcPitch = pitch;
+        m.srcPitch = pitch as _;
 
         m.dstMemoryType = ffi::cuda::CUmemorytype_enum_CU_MEMORYTYPE_DEVICE;
         m.dstDevice = self.inner;
-        m.dstPitch = self.pitch;
+        m.dstPitch = self.pitch as _;
 
-        m.WidthInBytes = width;
-        m.Height = height;
+        m.WidthInBytes = width as _;
+        m.Height = height as _;
 
         if let Some(ctx) = self.context {
             unsafe {
