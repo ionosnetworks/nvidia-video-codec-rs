@@ -1,4 +1,4 @@
-use ffi::cuvid::CUresult;
+use crate::CudaError;
 
 pub struct CudaPtr {
     context: Option<ffi::cuda::CUcontext>,
@@ -11,7 +11,7 @@ pub fn malloc_pitch_ctx(
     width_in_bytes: u64,
     height: u64,
     element_size_bytes: u32,
-) -> Result<CudaPtr, CUresult> {
+) -> Result<CudaPtr, CudaError> {
     let mut pitch: usize = 0;
     let mut ptr: ffi::cuda::CUdeviceptr = 0;
     unsafe {
@@ -52,7 +52,7 @@ impl CudaPtr {
         pitch: u64,
         width: u64,
         height: u64,
-    ) -> Result<(), CUresult> {
+    ) -> Result<(), CudaError> {
         let mut m: ffi::cuda::CUDA_MEMCPY2D_v2 = unsafe { std::mem::zeroed() };
         m.srcMemoryType = ffi::cuda::CUmemorytype_enum_CU_MEMORYTYPE_DEVICE;
         m.srcDevice = other;

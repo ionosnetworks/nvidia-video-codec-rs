@@ -3,7 +3,7 @@ macro_rules! wrap {
         if $res == ffi::cuda::cudaError_enum_CUDA_SUCCESS {
             Ok($val)
         } else {
-            Err($res)
+            Err($crate::CudaError($res))
         }
     };
 }

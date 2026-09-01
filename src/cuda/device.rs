@@ -8,21 +8,21 @@ pub struct CuDevice {
 }
 
 impl CuDevice {
-    pub fn new(ordinal: c_int) -> Result<CuDevice, CUresult> {
+    pub fn new(ordinal: c_int) -> Result<CuDevice, crate::CudaError> {
         let mut d = CuDevice { device: 0 };
         let res = unsafe { cuDeviceGet(&mut d.device as *mut i32, ordinal) };
 
         wrap!(d, res)
     }
 
-    pub fn get_attribute(&self, attr: CUdevice_attribute) -> Result<c_int, CUresult> {
+    pub fn get_attribute(&self, attr: CUdevice_attribute) -> Result<c_int, crate::CudaError> {
         let mut pi = 0;
         let res = unsafe { cuDeviceGetAttribute(&mut pi as *mut i32, attr, self.device) };
 
         wrap!(pi, res)
     }
 
-    pub fn get_name(&self) -> Result<String, CUresult> {
+    pub fn get_name(&self) -> Result<String, crate::CudaError> {
         let mut name = vec![0; 256];
         let res = unsafe {
             cuDeviceGetName(
@@ -36,7 +36,7 @@ impl CuDevice {
         wrap!(val, res)
     }
 
-    pub fn get_total_mem(&self) -> Result<u64, CUresult> {
+    pub fn get_total_mem(&self) -> Result<u64, crate::CudaError> {
         let mut val = 0usize;
         let res = unsafe { cuDeviceTotalMem_v2(&mut val as *mut usize, self.device) };
 
@@ -45,7 +45,7 @@ impl CuDevice {
     }
 }
 
-pub fn get_count() -> Result<c_int, CUresult> {
+pub fn get_count() -> Result<c_int, crate::CudaError> {
     let mut val = 0;
     let res = unsafe { cuDeviceGetCount(&mut val as *mut i32) };
 

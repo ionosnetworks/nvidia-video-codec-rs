@@ -9,7 +9,7 @@ impl CuStream {
     pub fn with_context(
         ctx: super::context::CuContext,
         non_blocking: bool,
-    ) -> Result<Self, ffi::cuda::CUresult> {
+    ) -> Result<Self, crate::CudaError> {
         let mut stream = CuStream {
             stream: std::ptr::null_mut(),
         };

@@ -78,7 +78,7 @@ impl Decoder {
         output_surfaces: Option<usize>,
         frame_timeout: Option<Duration>,
         picture_buffer: Option<usize>,
-    ) -> Result<Self, ffi::cuda::CUresult> {
+    ) -> Result<Self, crate::CudaError> {
         let context = match context {
             Some(context) => super::super::cuda::context::CuContextRef::Borrowed(context),
             None => {
@@ -159,7 +159,7 @@ impl Decoder {
         self.inner.surface_timeout = Some(timeout);
     }
 
-    pub fn queue(&self, data: &[u8], timestamp: i64) -> Result<(), ffi::cuda::CUresult> {
+    pub fn queue(&self, data: &[u8], timestamp: i64) -> Result<(), crate::CudaError> {
         if self.inner.current_decode_surfaces > 0 {
             let (lock, cvar) = &*self.inner.decode_surfaces_in_flight;
             let mut in_flight = lock.lock().unwrap();
@@ -201,7 +201,7 @@ impl Decoder {
         Ok(())
     }
 
-    pub fn send_eos(&self) -> Result<(), ffi::cuda::CUresult> {
+    pub fn send_eos(&self) -> Result<(), crate::CudaError> {
         let mut packet: ffi::cuvid::CUVIDSOURCEDATAPACKET = unsafe { std::mem::zeroed() };
         packet.flags = (ffi::cuvid::CUvideopacketflags_CUVID_PKT_ENDOFSTREAM
             | ffi::cuvid::CUvideopacketflags_CUVID_PKT_NOTIFY_EOS) as _;
@@ -535,10 +535,11 @@ impl Inner {
             }
 
             if self.decoder.is_null() {
-                if !ffi::cuvid::cuvidCreateDecoder(&mut self.decoder, &mut video_decode_create_info)
-                    .ok()
+                if let Err(err) =
+                    ffi::cuvid::cuvidCreateDecoder(&mut self.decoder, &mut video_decode_create_info)
+                        .err()
                 {
-                    tracing::error!("Failed to create decoder");
+                    tracing::error!("Failed to create decoder: {}", err);
                     return 0;
                 }
             } else {

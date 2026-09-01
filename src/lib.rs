@@ -1,5 +1,7 @@
 use std::cell::RefCell;
+use std::ffi::CStr;
 use std::mem::MaybeUninit;
+use std::os::raw::c_char;
 
 #[cfg(feature = "async")]
 pub extern crate futures;
@@ -25,11 +27,42 @@ pub fn init() {
     });
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CudaError(pub u32);
+
+impl CudaError {
+    pub fn name(&self) -> String {
+        let mut ptr: *const c_char = std::ptr::null();
+        let res = unsafe { ffi::cuvid::cuGetErrorName(self.0, &mut ptr) };
+        if res.ok() && !ptr.is_null() {
+            unsafe { CStr::from_ptr(ptr) }.to_string_lossy().into_owned()
+        } else {
+            format!("CUDA_ERROR({})", self.0)
+        }
+    }
+
+    pub fn string(&self) -> String {
+        let mut ptr: *const c_char = std::ptr::null();
+        let res = unsafe { ffi::cuvid::cuGetErrorString(self.0, &mut ptr) };
+        if res.ok() && !ptr.is_null() {
+            unsafe { CStr::from_ptr(ptr) }.to_string_lossy().into_owned()
+        } else {
+            format!("unrecognized error code ({})", self.0)
+        }
+    }
+}
+
+impl std::fmt::Display for CudaError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}: {}", self.name(), self.string())
+    }
+}
+
+impl std::error::Error for CudaError {}
+
 pub trait CudaResult {
     fn ok(&self) -> bool;
-    fn err(&self) -> Result<(), Self>
-    where
-        Self: Sized;
+    fn err(&self) -> Result<(), CudaError>;
 }
 
 impl CudaResult for ffi::cuda::CUresult {
@@ -37,20 +70,18 @@ impl CudaResult for ffi::cuda::CUresult {
         return *self == ffi::cuda::cudaError_enum_CUDA_SUCCESS;
     }
 
-    fn err(&self) -> Result<(), Self> {
+    fn err(&self) -> Result<(), CudaError> {
         if *self == ffi::cuda::cudaError_enum_CUDA_SUCCESS {
             Ok(())
         } else {
-            Err(*self)
+            Err(CudaError(*self))
         }
     }
 }
 
 pub trait NppResult {
     fn ok(&self) -> bool;
-    fn err(&self) -> Result<(), Self>
-    where
-        Self: Sized;
+    fn err(&self) -> Result<(), CudaError>;
 }
 
 impl NppResult for ffi::npp::NppStatus {
@@ -58,11 +89,11 @@ impl NppResult for ffi::npp::NppStatus {
         return *self == ffi::npp::NppStatus_NPP_SUCCESS;
     }
 
-    fn err(&self) -> Result<(), Self> {
+    fn err(&self) -> Result<(), CudaError> {
         if *self == ffi::npp::NppStatus_NPP_SUCCESS {
             Ok(())
         } else {
-            Err(*self)
+            Err(CudaError(*self as u32))
         }
     }
 }
@@ -75,7 +106,7 @@ pub fn nv12_to_rgb24(
     dest_ptr: *mut std::os::raw::c_void,
     dest_pitch: i32,
     stream: Option<&cuda::stream::CuStream>,
-) -> Result<(), ffi::npp::NppStatus> {
+) -> Result<(), CudaError> {
     let src: [*const ffi::npp::Npp8u; 2] = unsafe {
         [
             (ptr as *const ffi::npp::Npp8u),
@@ -124,7 +155,7 @@ pub fn nv12_to_bgr24(
     dest_ptr: *mut std::os::raw::c_void,
     dest_pitch: i32,
     stream: Option<&cuda::stream::CuStream>,
-) -> Result<(), ffi::npp::NppStatus> {
+) -> Result<(), CudaError> {
     let src: [*const ffi::npp::Npp8u; 2] = unsafe {
         [
             (ptr as *const ffi::npp::Npp8u),

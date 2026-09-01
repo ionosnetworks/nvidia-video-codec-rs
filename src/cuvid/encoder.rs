@@ -155,7 +155,7 @@ impl Encoder {
         framerate: (u32, u32),
         surfaces: NonZeroUsize,
         low_latency: bool,
-    ) -> Result<Self, ffi::cuda::CUresult> {
+    ) -> Result<Self, crate::CudaError> {
         let context = match context {
             Some(context) => super::super::cuda::context::CuContextRef::Borrowed(context),
             None => {
@@ -215,7 +215,7 @@ impl Encoder {
 
         let selected_codec = match selected_codec {
             Some(codec) => *codec,
-            None => return Err(ffi::cuda::cudaError_enum_CUDA_ERROR_UNKNOWN + 2),
+            None => return Err(crate::CudaError(ffi::cuda::cudaError_enum_CUDA_ERROR_UNKNOWN + 2)),
         };
 
         let _presets = unsafe {
@@ -284,7 +284,7 @@ impl Encoder {
 
         let _selected_profile = match selected_profile {
             Some(profile) => *profile,
-            None => return Err(ffi::cuda::cudaError_enum_CUDA_ERROR_UNKNOWN + 3),
+            None => return Err(crate::CudaError(ffi::cuda::cudaError_enum_CUDA_ERROR_UNKNOWN + 3)),
         };
 
         let input_formats = unsafe {
@@ -319,7 +319,7 @@ impl Encoder {
             .find(|&&f| f == ffi::cuvid::_NV_ENC_BUFFER_FORMAT_NV_ENC_BUFFER_FORMAT_NV12)
         {
             Some(format) => *format,
-            None => return Err(ffi::cuda::cudaError_enum_CUDA_ERROR_UNKNOWN + 4),
+            None => return Err(crate::CudaError(ffi::cuda::cudaError_enum_CUDA_ERROR_UNKNOWN + 4)),
         };
 
         let mut preset_config: ffi::cuvid::NV_ENC_PRESET_CONFIG = unsafe { std::mem::zeroed() };
@@ -503,7 +503,7 @@ impl Encoder {
         frame: GpuFrame,
         duration: u64,
         copy: bool,
-    ) -> Result<bool, ffi::cuda::CUresult> {
+    ) -> Result<bool, crate::CudaError> {
         if self.inner.sender.is_none() {
             panic!("Encoder::queue was called, but eos has already been sent.");
         }
@@ -589,7 +589,7 @@ impl Encoder {
                 sender.send(resource).unwrap();
                 Ok(true)
             }
-            Err(ffi::cuvid::_NVENCSTATUS_NV_ENC_ERR_NEED_MORE_INPUT) => {
+            Err(crate::CudaError(ffi::cuvid::_NVENCSTATUS_NV_ENC_ERR_NEED_MORE_INPUT)) => {
                 self.inner.pending.push(resource);
                 Ok(false)
             }
@@ -597,7 +597,7 @@ impl Encoder {
         }
     }
 
-    pub fn spspps(&self) -> Result<Vec<u8>, ffi::cuda::CUresult> {
+    pub fn spspps(&self) -> Result<Vec<u8>, crate::CudaError> {
         let mut params: ffi::cuvid::NV_ENC_SEQUENCE_PARAM_PAYLOAD = unsafe { std::mem::zeroed() };
         params.version = NV_ENC_SEQUENCE_PARAM_PAYLOAD_VER;
 
@@ -616,7 +616,7 @@ impl Encoder {
         Ok(Vec::from(&spspps[..spspps_size as usize]))
     }
 
-    pub fn send_eos(&mut self) -> Result<(), ffi::cuda::CUresult> {
+    pub fn send_eos(&mut self) -> Result<(), crate::CudaError> {
         let mut pic_params: ffi::cuvid::NV_ENC_PIC_PARAMS = unsafe { std::mem::zeroed() };
         pic_params.version = NV_ENC_PIC_PARAMS_VER;
         pic_params.encodePicFlags = ffi::cuvid::_NV_ENC_PIC_FLAGS_NV_ENC_PIC_FLAG_EOS;
@@ -645,7 +645,7 @@ struct EncoderContext {
 }
 
 impl EncoderContext {
-    fn new(context: &crate::cuda::context::CuContextRef<'_>) -> Result<Self, ffi::cuda::CUresult> {
+    fn new(context: &crate::cuda::context::CuContextRef<'_>) -> Result<Self, crate::CudaError> {
         let mut params: ffi::cuvid::NV_ENC_OPEN_ENCODE_SESSION_EX_PARAMS =
             unsafe { std::mem::zeroed() };
         params.version = NV_ENC_OPEN_ENCODE_SESSION_EX_PARAMS_VER;
@@ -694,7 +694,7 @@ impl MappedInputResource {
         pitch: u32,
         input_format: ffi::cuvid::NV_ENC_BUFFER_FORMAT,
         resource: Result<Arc<CudaPtr>, GpuFrame>,
-    ) -> Result<Self, ffi::cuda::CUresult> {
+    ) -> Result<Self, crate::CudaError> {
         let mut register_resource: ffi::cuvid::NV_ENC_REGISTER_RESOURCE =
             unsafe { std::mem::zeroed() };
         register_resource.version = NV_ENC_REGISTER_RESOURCE_VER;
@@ -762,7 +762,7 @@ struct BitStream {
     encoder: std::ptr::NonNull<std::os::raw::c_void>,
 }
 impl BitStream {
-    pub fn new(encoder: &EncoderContext) -> Result<Self, ffi::cuda::CUresult> {
+    pub fn new(encoder: &EncoderContext) -> Result<Self, crate::CudaError> {
         let mut params: ffi::cuvid::NV_ENC_CREATE_BITSTREAM_BUFFER = unsafe { std::mem::zeroed() };
         params.version = NV_ENC_CREATE_BITSTREAM_BUFFER_VER;
 
@@ -777,7 +777,7 @@ impl BitStream {
         })
     }
 
-    pub fn to_vec(&self) -> Result<(Vec<u8>, bool, u64, u64), ffi::cuda::CUresult> {
+    pub fn to_vec(&self) -> Result<(Vec<u8>, bool, u64, u64), crate::CudaError> {
         let mut params: ffi::cuvid::NV_ENC_LOCK_BITSTREAM = unsafe { std::mem::zeroed() };
         params.version = NV_ENC_LOCK_BITSTREAM_VER;
         params.outputBitstream = self.inner.as_ptr();
