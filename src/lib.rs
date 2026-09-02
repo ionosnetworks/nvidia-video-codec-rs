@@ -11,6 +11,7 @@ pub extern crate nvidia_video_codec_sys as ffi;
 mod macros;
 
 pub mod cuda;
+#[cfg(feature = "cuvid")]
 pub mod cuvid;
 
 thread_local! {
@@ -21,6 +22,7 @@ pub fn init() {
     INIT.with(|init| {
         let mut status = init.borrow_mut();
         if status.is_none() {
+            #[cfg(feature = "cuvid")]
             let _ = unsafe { ffi::cuvid::cuInit(0) };
             status.replace(());
         }
@@ -33,9 +35,11 @@ pub struct CudaError(pub u32);
 impl CudaError {
     pub fn name(&self) -> String {
         let mut ptr: *const c_char = std::ptr::null();
-        let res = unsafe { ffi::cuvid::cuGetErrorName(self.0, &mut ptr) };
+        let res = unsafe { ffi::cuda::cuGetErrorName(self.0, &mut ptr) };
         if res.ok() && !ptr.is_null() {
-            unsafe { CStr::from_ptr(ptr) }.to_string_lossy().into_owned()
+            unsafe { CStr::from_ptr(ptr) }
+                .to_string_lossy()
+                .into_owned()
         } else {
             format!("CUDA_ERROR({})", self.0)
         }
@@ -43,9 +47,11 @@ impl CudaError {
 
     pub fn string(&self) -> String {
         let mut ptr: *const c_char = std::ptr::null();
-        let res = unsafe { ffi::cuvid::cuGetErrorString(self.0, &mut ptr) };
+        let res = unsafe { ffi::cuda::cuGetErrorString(self.0, &mut ptr) };
         if res.ok() && !ptr.is_null() {
-            unsafe { CStr::from_ptr(ptr) }.to_string_lossy().into_owned()
+            unsafe { CStr::from_ptr(ptr) }
+                .to_string_lossy()
+                .into_owned()
         } else {
             format!("unrecognized error code ({})", self.0)
         }
@@ -99,7 +105,7 @@ impl NppResult for ffi::npp::NppStatus {
 }
 
 pub fn nv12_to_rgb24(
-    ptr: ffi::cuvid::CUdeviceptr,
+    ptr: ffi::cuda::CUdeviceptr,
     width: u32,
     height: u32,
     pitch: i32,
@@ -148,7 +154,7 @@ pub fn nv12_to_rgb24(
 }
 
 pub fn nv12_to_bgr24(
-    ptr: ffi::cuvid::CUdeviceptr,
+    ptr: ffi::cuda::CUdeviceptr,
     width: u32,
     height: u32,
     pitch: i32,
