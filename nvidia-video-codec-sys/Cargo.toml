@@ -8,9 +8,6 @@ repository = "https://github.com/rust-av/nvidia-video-codec-rs"
 
 build = "build.rs"
 
-[features]
-cuvid = []
-
 [build-dependencies]
 bindgen = "0.65.1"
 

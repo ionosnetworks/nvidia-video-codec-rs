@@ -51,7 +51,7 @@ fn main() {
     println!("cargo:rustc-link-lib=dylib={}", "nppicc");
     println!("cargo:rustc-link-lib=dylib={}", "nppial");
 
-    #[cfg(feature = "cuvid")]
+    #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
     {
         println!("cargo:rustc-link-lib=dylib={}", "nvcuvid");
         println!("cargo:rustc-link-lib=dylib={}", "nvidia-encode");
@@ -65,7 +65,7 @@ fn main() {
     // Manually fix the comment so rustdoc won't try to pick them
     format_write(cuda_builder, "src/cuda.rs");
 
-    #[cfg(feature = "cuvid")]
+    #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
     {
         let cuvid_builder = common_builder()
             .clang_arg(format!("-I{}", nvc_include.to_string_lossy()))

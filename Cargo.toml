@@ -9,8 +9,6 @@ readme = "README.md"
 keywords = ["NVIDIA", "cuvid", "nvenc"]
 
 [features]
-default = ["cuvid"]
-cuvid = ["nvidia-video-codec-sys/cuvid"]
 async = ["futures", "flume/async"]
 
 [dependencies]

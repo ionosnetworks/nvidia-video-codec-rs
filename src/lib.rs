@@ -11,7 +11,7 @@ pub extern crate nvidia_video_codec_sys as ffi;
 mod macros;
 
 pub mod cuda;
-#[cfg(feature = "cuvid")]
+#[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
 pub mod cuvid;
 
 thread_local! {
@@ -22,7 +22,7 @@ pub fn init() {
     INIT.with(|init| {
         let mut status = init.borrow_mut();
         if status.is_none() {
-            #[cfg(feature = "cuvid")]
+            #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
             let _ = unsafe { ffi::cuvid::cuInit(0) };
             status.replace(());
         }
