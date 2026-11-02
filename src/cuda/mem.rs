@@ -70,7 +70,12 @@ impl CudaPtr {
                 ffi::cuda::cuCtxPushCurrent_v2(ctx);
             }
         }
-        let res = unsafe { ffi::cuda::cuMemcpy2D_v2(&m) };
+        let mut res = unsafe { ffi::cuda::cuMemcpy2D_v2(&m) };
+        /* Device-to-device cuMemcpy2D does not wait on the host. Block until
+        the copy is done, so the caller can release the source right after. */
+        if res == ffi::cuda::cudaError_enum_CUDA_SUCCESS {
+            res = unsafe { ffi::cuda::cuStreamSynchronize(std::ptr::null_mut()) };
+        }
         if self.context.is_some() {
             unsafe {
                 ffi::cuda::cuCtxPopCurrent_v2(std::ptr::null_mut());
