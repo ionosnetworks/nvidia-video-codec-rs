@@ -133,7 +133,6 @@ pub const NV_ENC_HEVC_PROFILE_MAIN_GUID: ffi::cuvid::GUID = ffi::cuvid::GUID {
 
 struct Inner {
     gpu_context: ffi::cuda::CUcontext,
-    encoder: EncoderContext,
     input_format: ffi::cuvid::NV_ENC_BUFFER_FORMAT,
     pool: ResourcePool,
     bitstream: Arc<Vec<BitStream>>,
@@ -143,6 +142,11 @@ struct Inner {
     input: Vec<Option<Arc<CudaPtr>>>,
     pending: Vec<MappedInputResource>,
     sender: Option<flume::Sender<MappedInputResource>>,
+    /* Fields drop in declaration order: everything above is a resource of
+    this session and must go before it, and the session before its context. */
+    encoder: EncoderContext,
+    /// Keeps an owned context alive; `gpu_context` is only its raw handle.
+    _context: super::super::cuda::context::CuContextRef<'static>,
 }
 
 impl Encoder {
@@ -488,6 +492,7 @@ impl Encoder {
             sender: Some(sender),
             receiver,
             ll: low_latency,
+            _context: context,
         });
 
         Ok(Self { inner })
