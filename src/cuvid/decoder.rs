@@ -201,6 +201,25 @@ impl Decoder {
         Ok(())
     }
 
+    /// Drain the parser without ending the stream.
+    ///
+    /// Every picture queued so far is decoded and handed to [`Self::frames`]
+    /// before this returns, but unlike [`Self::send_eos`] the frames channel
+    /// stays open and the decoder can be fed again. The parser's reference
+    /// state is reset, so the next packet must begin at a random access point
+    /// (an IDR or IRAP picture with its parameter sets).
+    pub fn flush(&self) -> Result<(), crate::CudaError> {
+        let mut packet: ffi::cuvid::CUVIDSOURCEDATAPACKET = unsafe { std::mem::zeroed() };
+        packet.flags = ffi::cuvid::CUvideopacketflags_CUVID_PKT_ENDOFSTREAM as _;
+
+        unsafe {
+            let res = ffi::cuvid::cuvidParseVideoData(self.inner.parser, &mut packet);
+            wrap!(res, res)?;
+        }
+
+        Ok(())
+    }
+
     pub fn send_eos(&self) -> Result<(), crate::CudaError> {
         let mut packet: ffi::cuvid::CUVIDSOURCEDATAPACKET = unsafe { std::mem::zeroed() };
         packet.flags = (ffi::cuvid::CUvideopacketflags_CUVID_PKT_ENDOFSTREAM
