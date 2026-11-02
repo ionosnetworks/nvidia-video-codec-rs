@@ -17,6 +17,20 @@ impl CuContext {
         wrap!(ctx, res)
     }
 
+    /// The device's primary context (the one the CUDA runtime, and so OpenCV,
+    /// uses), retained and leaked.
+    ///
+    /// Leaked because `Drop` calls `cuCtxDestroy`, which must never be called
+    /// on a primary context. Returning `&'static` keeps a droppable one from
+    /// existing at all. Each call retains it once more.
+    pub(crate) fn leak_primary(dev: &CuDevice) -> Result<&'static CuContext, crate::CudaError> {
+        let mut context = std::ptr::null_mut();
+        let res = unsafe { ffi::cuda::cuDevicePrimaryCtxRetain(&mut context, dev.device) };
+        let val = ();
+        wrap!(val, res)?;
+        Ok(Box::leak(Box::new(CuContext { context })))
+    }
+
     pub fn get_api_version(&self) -> Result<u32, crate::CudaError> {
         let mut ver = 0;
         let res = unsafe { ffi::cuda::cuCtxGetApiVersion(self.context, &mut ver as *mut u32) };

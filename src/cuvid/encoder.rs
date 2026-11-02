@@ -7,6 +7,10 @@ use crate::cuda::mem::CudaPtr;
 use super::codec::Codec;
 use super::GpuFrame;
 
+/// NVENC sessions this crate has open, anchors included (see `anchor`).
+pub(crate) static OPEN_SESSIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+
 pub struct Encoder {
     inner: Box<Inner>,
 }
@@ -664,6 +668,7 @@ impl EncoderContext {
             let res = NVENC_LIB.nvEncOpenEncodeSessionEx.unwrap()(&mut params, &mut encoder);
             wrap!(res, res)?;
         }
+        OPEN_SESSIONS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         Ok(Self {
             inner: std::ptr::NonNull::new(encoder).unwrap(),
         })
@@ -679,6 +684,7 @@ impl Drop for EncoderContext {
         unsafe {
             NVENC_LIB.nvEncDestroyEncoder.unwrap()(self.inner.as_ptr());
         }
+        OPEN_SESSIONS.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
     }
 }
 

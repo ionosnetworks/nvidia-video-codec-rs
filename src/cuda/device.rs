@@ -15,6 +15,14 @@ impl CuDevice {
         wrap!(d, res)
     }
 
+    /// Number of CUDA devices. `cuInit` must have run (see [`crate::init`]).
+    pub fn count() -> Result<c_int, crate::CudaError> {
+        let mut count = 0;
+        let res = unsafe { cuDeviceGetCount(&mut count as *mut c_int) };
+
+        wrap!(count, res)
+    }
+
     pub fn get_attribute(&self, attr: CUdevice_attribute) -> Result<c_int, crate::CudaError> {
         let mut pi = 0;
         let res = unsafe { cuDeviceGetAttribute(&mut pi as *mut i32, attr, self.device) };

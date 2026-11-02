@@ -1,5 +1,6 @@
 use super::{ffi, CudaResult};
 
+pub mod anchor;
 mod chroma;
 mod codec;
 mod decoder;
