@@ -98,11 +98,11 @@ pub const NV_ENC_PRESET_LOSSLESS_DEFAULT_GUID: ffi::cuvid::GUID = ffi::cuvid::GU
     Data4: [0x9b, 0xb8, 0xde, 0xa5, 0x51, 0xf, 0xc3, 0xac],
 };
 
-pub const NV_ENC_PRESET_P1_GUID: ffi::cuvid::GUID = ffi::cuvid::GUID {
-    Data1: 0xfc0a8d3e,
-    Data2: 0x45f8,
-    Data3: 0x4cf8,
-    Data4: [0x80, 0xc7, 0x29, 0x88, 0x71, 0x59, 0x0e, 0xbf],
+pub const NV_ENC_PRESET_P2_GUID: ffi::cuvid::GUID = ffi::cuvid::GUID {
+    Data1: 0xf581_cfb8,
+    Data2: 0x88d6,
+    Data3: 0x4381,
+    Data4: [0x93, 0xf0, 0xdf, 0x13, 0xf9, 0xc2, 0x7d, 0xab],
 };
 
 pub const NV_ENC_PRESET_P7_GUID: ffi::cuvid::GUID = ffi::cuvid::GUID {
@@ -223,7 +223,11 @@ impl Encoder {
 
         let selected_codec = match selected_codec {
             Some(codec) => *codec,
-            None => return Err(crate::CudaError(ffi::cuda::cudaError_enum_CUDA_ERROR_UNKNOWN + 2)),
+            None => {
+                return Err(crate::CudaError(
+                    ffi::cuda::cudaError_enum_CUDA_ERROR_UNKNOWN + 2,
+                ))
+            }
         };
 
         let _presets = unsafe {
@@ -292,7 +296,11 @@ impl Encoder {
 
         let _selected_profile = match selected_profile {
             Some(profile) => *profile,
-            None => return Err(crate::CudaError(ffi::cuda::cudaError_enum_CUDA_ERROR_UNKNOWN + 3)),
+            None => {
+                return Err(crate::CudaError(
+                    ffi::cuda::cudaError_enum_CUDA_ERROR_UNKNOWN + 3,
+                ))
+            }
         };
 
         let input_formats = unsafe {
@@ -327,18 +335,28 @@ impl Encoder {
             .find(|&&f| f == ffi::cuvid::_NV_ENC_BUFFER_FORMAT_NV_ENC_BUFFER_FORMAT_NV12)
         {
             Some(format) => *format,
-            None => return Err(crate::CudaError(ffi::cuda::cudaError_enum_CUDA_ERROR_UNKNOWN + 4)),
+            None => {
+                return Err(crate::CudaError(
+                    ffi::cuda::cudaError_enum_CUDA_ERROR_UNKNOWN + 4,
+                ))
+            }
         };
 
         let mut preset_config: ffi::cuvid::NV_ENC_PRESET_CONFIG = unsafe { std::mem::zeroed() };
         preset_config.version = NV_ENC_PRESET_CONFIG_VER;
         preset_config.presetCfg.version = NV_ENC_CONFIG_VER;
 
+        let preset_guid = if low_latency {
+            NV_ENC_PRESET_P7_GUID
+        } else {
+            NV_ENC_PRESET_P2_GUID
+        };
+
         unsafe {
             let res = NVENC_LIB.nvEncGetEncodePresetConfigEx.unwrap()(
                 encoder.as_ptr(),
                 selected_codec,
-                NV_ENC_PRESET_P7_GUID,
+                preset_guid,
                 ffi::cuvid::NV_ENC_TUNING_INFO_NV_ENC_TUNING_INFO_HIGH_QUALITY,
                 &mut preset_config,
             );
@@ -363,6 +381,7 @@ impl Encoder {
             preset_config.presetCfg.rcParams.set_zeroReorderDelay(1);
             preset_config.presetCfg.rcParams.set_enableAQ(1);
             preset_config.presetCfg.rcParams.set_aqStrength(15);
+            preset_config.presetCfg.frameIntervalP = 0;
 
             preset_config
                 .presetCfg
@@ -372,8 +391,9 @@ impl Encoder {
             preset_config.presetCfg.encodeCodecConfig.h264Config.level =
                 ffi::cuvid::_NV_ENC_LEVEL_NV_ENC_LEVEL_H264_51;
         } else {
+            preset_config.presetCfg.frameIntervalP = 1;
             preset_config.presetCfg.rcParams.multiPass =
-                ffi::cuvid::_NV_ENC_MULTI_PASS_NV_ENC_TWO_PASS_FULL_RESOLUTION;
+                ffi::cuvid::_NV_ENC_MULTI_PASS_NV_ENC_MULTI_PASS_DISABLED;
         };
 
         unsafe {
@@ -384,7 +404,6 @@ impl Encoder {
                 .set_repeatSPSPPS(1)
         };
 
-        preset_config.presetCfg.frameIntervalP = 0;
         preset_config.presetCfg.frameFieldMode =
             ffi::cuvid::_NV_ENC_PARAMS_FRAME_FIELD_MODE_NV_ENC_PARAMS_FRAME_FIELD_MODE_FRAME;
         unsafe {
@@ -424,7 +443,9 @@ impl Encoder {
                     preset_config.presetCfg.rcParams.vbvBufferSize = bitrate; // bits
                     preset_config.presetCfg.rcParams.vbvInitialDelay = bitrate;
                 } else {
-                    preset_config.presetCfg.rcParams.maxBitRate = bitrate;
+                    preset_config.presetCfg.rcParams.averageBitRate = bitrate;
+                    preset_config.presetCfg.rcParams.vbvBufferSize = bitrate; // bits
+                    preset_config.presetCfg.rcParams.vbvInitialDelay = bitrate;
                 }
             }
         }
@@ -456,7 +477,7 @@ impl Encoder {
         let mut params: ffi::cuvid::NV_ENC_INITIALIZE_PARAMS = unsafe { std::mem::zeroed() };
         params.version = NV_ENC_INITIALIZE_PARAMS_VER;
         params.encodeGUID = selected_codec;
-        params.presetGUID = NV_ENC_PRESET_P7_GUID;
+        params.presetGUID = preset_guid;
         params.encodeWidth = output_size.0;
         params.encodeHeight = output_size.1;
         params.tuningInfo = ffi::cuvid::NV_ENC_TUNING_INFO_NV_ENC_TUNING_INFO_HIGH_QUALITY;
@@ -511,6 +532,7 @@ impl Encoder {
         &mut self,
         frame: GpuFrame,
         duration: u64,
+        force_idr: bool,
         copy: bool,
     ) -> Result<bool, crate::CudaError> {
         if self.inner.sender.is_none() {
@@ -557,7 +579,7 @@ impl Encoder {
         pic_params.frameIdx = 0;
         pic_params.inputDuration = duration;
 
-        if self.inner.ll {
+        if self.inner.ll || force_idr {
             pic_params.encodePicFlags = ffi::cuvid::_NV_ENC_PIC_FLAGS_NV_ENC_PIC_FLAG_OUTPUT_SPSPPS
                 | ffi::cuvid::_NV_ENC_PIC_FLAGS_NV_ENC_PIC_FLAG_FORCEIDR;
         }
